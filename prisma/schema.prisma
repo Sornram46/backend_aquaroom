@@ -1,0 +1,771 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Product {
+  id              Int       @id @default(autoincrement())
+  name            String    @db.VarChar(255)
+  description     String?
+  price           Decimal   @db.Decimal(10, 2)
+  image_url       String?
+  is_popular      Boolean?  @default(false)
+  created_at      DateTime? @default(now()) @db.Timestamp(6)
+  stock           Int       @default(0)
+  image_url_two   String?
+  image_url_three String?
+  image_url_four  String?
+  updated_at      DateTime  @default(now())
+
+  // การตั้งค่าค่าจัดส่งพิเศษ
+  shipping_cost_bangkok   Decimal? @default(0) @db.Decimal(10, 2)
+  shipping_cost_provinces Decimal? @default(0) @db.Decimal(10, 2)
+  shipping_cost_remote    Decimal? @default(0) @db.Decimal(10, 2)
+  free_shipping_threshold Decimal? @db.Decimal(10, 2)
+  delivery_time           String?  @default("2-3 วัน")
+  shipping_notes          String?
+  special_handling        Boolean  @default(false)
+
+  // 🐠 เพิ่มการตั้งค่าค่าจัดส่งพิเศษ
+  has_special_shipping   Boolean  @default(false) // มีค่าจัดส่งพิเศษหรือไม่
+  special_shipping_base  Decimal? @db.Decimal(10, 2) // ค่าจัดส่งพื้นฐาน (80฿)
+  special_shipping_qty   Int? // จำนวนที่เริ่มคิดเพิ่ม (4 ตัว)
+  special_shipping_extra Decimal? @db.Decimal(10, 2) // ค่าจัดส่งเพิ่ม (10฿/ตัว)
+  special_shipping_notes String? // หมายเหตุค่าจัดส่งพิเศษ
+
+  // Relations...
+  order_items         order_items[]
+  product_categories  product_categories[]
+  inventory_setting   inventory_settings?
+  stock_movements     stock_movements[]
+  inventory_alerts    inventory_alerts[]
+  purchase_items      purchase_order_items[]
+  reviews             reviews[]
+  inventory_movements inventory_movements[]
+
+  @@map("products")
+}
+
+// เพิ่ม model สำหรับตั้งค่าค่าจัดส่งตามหมวดหมู่
+model shipping_category_rules {
+  id                  Int      @id @default(autoincrement())
+  category_id         Int      @unique
+  rule_type           String   @db.VarChar(20) // 'default', 'special', 'fish'
+  base_cost           Decimal  @db.Decimal(10, 2) // ค่าจัดส่งพื้นฐาน
+  quantity_threshold  Int? // จำนวนที่เริ่มคิดเพิ่ม
+  extra_cost_per_item Decimal? @db.Decimal(10, 2) // ค่าเพิ่มต่อชิ้น
+  max_quantity        Int? // จำนวนสูงสุดต่อครั้ง
+  description         String? // คำอธิบายกฎ
+  is_active           Boolean  @default(true)
+  created_at          DateTime @default(now())
+  updated_at          DateTime @updatedAt
+
+  // Relations
+  category categories @relation(fields: [category_id], references: [id], onDelete: Cascade)
+
+  @@map("shipping_category_rules")
+}
+
+model categories {
+  id                 Int                      @id @default(autoincrement())
+  name               String                   @unique
+  description        String?
+  image_url_cate     String?
+  is_active          Boolean                  @default(true)
+  created_at         DateTime                 @default(now())
+  updated_at         DateTime                 @default(now())
+  product_categories product_categories[]
+  shipping_rule      shipping_category_rules? // เพิ่ม relation
+}
+
+model order_items {
+  id         Int       @id @default(autoincrement())
+  order_id   Int
+  product_id Int
+  quantity   Int
+  price      Decimal   @db.Decimal(10, 2)
+  total      Decimal   @db.Decimal(10, 2)
+  created_at DateTime? @default(now()) @db.Timestamp(6)
+  orders     orders    @relation(fields: [order_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  products   Product   @relation(fields: [product_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([order_id], map: "idx_order_items_order_id")
+}
+
+// รวม orders model และเพิ่มฟิลด์คูปอง
+model orders {
+  id           Int     @id @default(autoincrement())
+  user_id      Int
+  order_number String  @unique @db.VarChar(20)
+  address_id   Int
+  total_amount Decimal @db.Decimal(10, 2)
+  subtotal     Decimal @db.Decimal(10, 2)
+  shipping_fee Decimal @default(0) @db.Decimal(10, 2)
+  discount     Decimal @default(0) @db.Decimal(10, 2)
+
+  // เพิ่มฟิลด์สำหรับคูปอง
+  coupon_id       Int? // ID ของคูปองที่ใช้
+  coupon_code     String?  @db.VarChar(50) // รหัสคูปองที่ใช้
+  coupon_discount Decimal? @db.Decimal(10, 2) // จำนวนส่วนลดจากคูปอง
+
+  payment_method     String    @db.VarChar(20)
+  payment_status     String    @default("pending") @db.VarChar(20)
+  order_status       String    @default("processing") @db.VarChar(20)
+  notes              String?
+  created_at         DateTime? @default(now()) @db.Timestamp(6)
+  updated_at         DateTime? @default(now()) @db.Timestamp(6)
+  tracking_number    String?   @db.VarChar(100)
+  shipping_company   String?   @db.VarChar(100)
+  estimated_delivery DateTime? @db.Timestamp(6)
+
+  // Additional fields for compatibility
+  status           String? @default("pending") // for backward compatibility
+  shipping_address String?
+  phone            String?
+
+  // ความสัมพันธ์
+  order_items    order_items[]
+  user_addresses user_addresses   @relation(fields: [address_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users          users            @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  payment_proofs payment_proofs[]
+  payment        payments? // เพิ่ม relation กับ payments
+
+  // ความสัมพันธ์กับคูปอง
+  coupon        Coupon?       @relation("OrderCoupon", fields: [coupon_id], references: [id])
+  coupon_usages CouponUsage[]
+
+  @@index([order_number], map: "idx_orders_order_number")
+  @@index([order_status], map: "idx_orders_order_status")
+  @@index([payment_status], map: "idx_orders_payment_status")
+  @@index([user_id], map: "idx_orders_user_id")
+  @@index([coupon_id])
+}
+
+model payment_proofs {
+  id                Int       @id @default(autoincrement())
+  order_id          Int
+  file_path         String
+  original_filename String?   @db.VarChar(255)
+  file_size         Int?
+  uploaded_at       DateTime? @default(now()) @db.Timestamp(6)
+  status            String?   @default("pending") @db.VarChar(20)
+  notes             String?
+  orders            orders    @relation(fields: [order_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([order_id], map: "idx_payment_proofs_order_id")
+}
+
+model product_categories {
+  product_id  Int
+  category_id Int
+  categories  categories @relation(fields: [category_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  products    Product    @relation(fields: [product_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([product_id, category_id])
+}
+
+model user_addresses {
+  id            Int       @id @default(autoincrement())
+  user_id       Int
+  name          String    @db.VarChar(255)
+  phone         String    @db.VarChar(20)
+  address_line1 String
+  address_line2 String?
+  district      String    @db.VarChar(100)
+  city          String    @db.VarChar(100)
+  province      String    @db.VarChar(100)
+  postal_code   String    @db.VarChar(10)
+  is_default    Boolean?  @default(false)
+  created_at    DateTime? @default(now()) @db.Timestamp(6)
+  updated_at    DateTime? @default(now()) @db.Timestamp(6)
+  orders        orders[]
+  users         users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([is_default], map: "idx_user_addresses_is_default")
+  @@index([user_id], map: "idx_user_addresses_user_id")
+}
+
+// รวม users model และเพิ่มความสัมพันธ์กับคูปอง
+model users {
+  id                     Int       @id @default(autoincrement())
+  name                   String    @db.VarChar(255)
+  email                  String?   @unique @db.VarChar(255)
+  password               String?
+  role                   String?   @default("customer") @db.VarChar(50)
+  created_at             DateTime? @default(now()) @db.Timestamp(6)
+  auth_provider          String?   @default("local") @db.VarChar(50)
+  auth_provider_id       String?   @db.VarChar(255)
+  avatar                 String?
+  is_email_verified      Boolean?  @default(false)
+  is_active              Boolean?  @default(true)
+  updated_at             DateTime? @default(now()) @db.Timestamp(6)
+  last_login             DateTime? @db.Timestamp(6)
+  reset_password_token   String?   @db.VarChar(255)
+  reset_password_expires DateTime? @db.Timestamp(6)
+  login_attempts         Int?      @default(0)
+  last_failed_login      DateTime? @db.Timestamp(6)
+  account_locked_until   DateTime? @db.Timestamp(6)
+
+  // ความสัมพันธ์
+  orders                 orders[]
+  user_addresses         user_addresses[]
+  reviews                reviews[]
+  verified_payments      payments[]       @relation("VerifiedBy")
+  payment_logs           payment_logs[]
+  coupon_usages          CouponUsage[]
+  page_views             page_views[]     // ✅ เพิ่มบรรทัดนี้
+
+  @@unique([email, auth_provider], map: "unique_email_per_provider")
+  @@map("users")
+}
+
+model homepage_setting {
+  id            Int     @id @default(autoincrement())
+  //fill ส่วนของ logo
+  logo_url      String? // URL ของ logo หลัก
+  logo_alt_text String? // Alt text สำหรับ logo
+  logo_width    Int?    @default(120) // ความกว้าง logo
+  logo_height   Int?    @default(40) // ความสูง logo
+  dark_logo_url String? // URL ของ logo สำหรับ dark mode
+
+  hero_title          String?
+  hero_subtitle       String?
+  carousel_1_title    String?
+  carousel_1_subtitle String?
+  carousel_1_image    String?
+  carousel_2_title    String?
+  carousel_2_subtitle String?
+  carousel_2_image    String?
+  carousel_3_title    String?
+  carousel_3_subtitle String?
+  carousel_3_image    String?
+  why_choose_title    String?
+  why_choose_subtitle String?
+  quality_title       String?
+  quality_subtitle    String?
+  quality_feature_1   String?
+  quality_feature_2   String?
+  quality_feature_3   String?
+
+  // เพิ่มส่วน Statistics
+  stat_1_number String?
+  stat_1_label  String?
+  stat_2_number String?
+  stat_2_label  String?
+  stat_3_number String?
+  stat_3_label  String?
+  stat_4_number String?
+  stat_4_label  String?
+
+  // เพิ่มส่วน Customer Review
+  review_text  String? @db.Text
+  review_name  String?
+  review_title String?
+
+  // เพิ่มส่วน Features
+  feature_1_title String?
+  feature_1_desc  String? @db.Text
+  feature_1_note  String?
+  feature_2_title String?
+  feature_2_desc  String? @db.Text
+  feature_2_note  String?
+  feature_3_title String?
+  feature_3_desc  String? @db.Text
+  feature_3_note  String?
+  feature_4_title String?
+  feature_4_desc  String? @db.Text
+  feature_4_note  String?
+
+  // เพิ่มส่วน Call to Action
+  cta_title         String?
+  cta_subtitle      String?
+  cta_button_1_text String?
+  cta_button_1_link String?
+  cta_button_2_text String?
+  cta_button_2_link String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+}
+
+model about_setting {
+  id Int @id @default(autoincrement())
+
+  // Hero Section
+  hero_title    String?
+  hero_subtitle String?
+
+  // Our Story Section
+  story_title     String?
+  story_content   String? @db.Text
+  story_image_url String?
+
+  // Mission Section
+  mission_title    String?
+  mission_subtitle String?
+
+  // Mission Cards (3 cards)
+  mission_1_title String?
+  mission_1_desc  String?
+  mission_2_title String?
+  mission_2_desc  String?
+  mission_3_title String?
+  mission_3_desc  String?
+
+  // Team Section
+  team_title    String?
+  team_subtitle String?
+
+  // Team Members (4 members)
+  team_1_name  String?
+  team_1_role  String?
+  team_1_image String?
+  team_2_name  String?
+  team_2_role  String?
+  team_2_image String?
+  team_3_name  String?
+  team_3_role  String?
+  team_3_image String?
+  team_4_name  String?
+  team_4_role  String?
+  team_4_image String?
+
+  // Values Section
+  values_title    String?
+  values_subtitle String?
+
+  // Values Items
+  value_1_title String?
+  value_1_desc  String?
+  value_2_title String?
+  value_2_desc  String?
+  value_3_title String?
+  value_3_desc  String?
+  value_4_title String?
+  value_4_desc  String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+}
+
+// ตั้งค่าสต็อกและการจัดการคลังสินค้า
+model inventory_settings {
+  id               Int      @id @default(autoincrement())
+  product_id       Int      @unique
+  min_stock        Int      @default(0) // สต็อกขั้นต่ำ
+  max_stock        Int? // สต็อกสูงสุด
+  reorder_point    Int? // จุดสั่งซื้อใหม่
+  reorder_quantity Int? // จำนวนที่สั่งซื้อ
+  cost_price       Decimal? @db.Decimal(10, 2) // ราคาทุน
+  supplier_info    String? // ข้อมูลผู้จัดจำหน่าย
+  storage_location String? // ที่เก็บสินค้า
+  shelf_life_days  Int? // อายุสินค้า (วัน)
+  notes            String?
+  is_active        Boolean  @default(true)
+  created_at       DateTime @default(now())
+  updated_at       DateTime @updatedAt
+
+  // Relations
+  product          Product            @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  stock_movements  stock_movements[]
+  inventory_alerts inventory_alerts[]
+}
+
+// ประวัติการเข้า-ออกสินค้า
+model stock_movements {
+  id                   Int       @id @default(autoincrement())
+  product_id           Int
+  inventory_setting_id Int?
+  movement_type        String    @db.VarChar(20) // 'in', 'out', 'adjustment', 'transfer'
+  quantity             Int // จำนวนที่เปลี่ยนแปลง
+  quantity_before      Int // จำนวนก่อนเปลี่ยนแปลง
+  quantity_after       Int // จำนวนหลังเปลี่ยนแปลง
+  unit_cost            Decimal?  @db.Decimal(10, 2) // ราคาต่อหน่วย
+  total_cost           Decimal?  @db.Decimal(10, 2) // ราคารวม
+  reason               String?   @db.VarChar(100) // เหตุผล
+  reference_type       String?   @db.VarChar(50) // 'order', 'purchase', 'adjustment', 'return'
+  reference_id         Int? // ID อ้างอิง (order_id, purchase_id, etc.)
+  batch_number         String?   @db.VarChar(50) // หมายเลขแบทช์
+  expiry_date          DateTime? @db.Timestamp(6) // วันหมดอายุ
+  notes                String?   @db.Text // หมายเหตุ
+  created_by           Int? // ผู้บันทึก
+  created_at           DateTime  @default(now())
+
+  // Relations
+  product           Product             @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  inventory_setting inventory_settings? @relation(fields: [inventory_setting_id], references: [id])
+
+  @@index([product_id])
+  @@index([movement_type])
+  @@index([created_at])
+  @@index([reference_type, reference_id])
+}
+
+// ระบบแจ้งเตือนสินค้า
+model inventory_alerts {
+  id                   Int       @id @default(autoincrement())
+  product_id           Int?
+  inventory_setting_id Int?
+  alert_type           String    @db.VarChar(50) // 'low_stock', 'out_of_stock', 'expired', 'reorder'
+  alert_level          String    @default("info") @db.VarChar(20) // 'info', 'warning', 'danger', 'critical'
+  title                String    @db.VarChar(255) // หัวข้อแจ้งเตือน
+  message              String    @db.Text // ข้อความแจ้งเตือน
+  current_stock        Int? // สต็อกปัจจุบัน
+  threshold_value      Int? // ค่าเกณฑ์ที่ใช้ตรวจสอบ
+  is_read              Boolean   @default(false)
+  is_active            Boolean   @default(true)
+  priority             Int       @default(1) // ความสำคัญ (1-5)
+  auto_generated       Boolean   @default(true) // สร้างอัตโนมัติหรือไม่
+  created_at           DateTime  @default(now())
+  updated_at           DateTime  @updatedAt
+  read_at              DateTime? @db.Timestamp(6)
+  resolved_at          DateTime? @db.Timestamp(6)
+  resolved_by          Int?
+
+  // Relations
+  product           Product?            @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  inventory_setting inventory_settings? @relation(fields: [inventory_setting_id], references: [id])
+
+  @@index([product_id])
+  @@index([alert_type])
+  @@index([is_read])
+  @@index([is_active])
+  @@index([created_at])
+}
+
+// รายการสั่งซื้อสินค้า (Purchase Orders)
+model purchase_orders {
+  id               Int       @id @default(autoincrement())
+  po_number        String    @unique @db.VarChar(50) // เลขที่ใบสั่งซื้อ
+  supplier_name    String    @db.VarChar(255) // ชื่อผู้จัดจำหน่าย
+  supplier_contact String?   @db.VarChar(255) // ข้อมูลติดต่อ
+  total_amount     Decimal   @db.Decimal(10, 2) // ยอดรวม
+  status           String    @default("pending") @db.VarChar(20) // 'pending', 'confirmed', 'shipped', 'received', 'cancelled'
+  order_date       DateTime  @default(now())
+  expected_date    DateTime? @db.Timestamp(6) // วันที่คาดว่าจะได้รับ
+  received_date    DateTime? @db.Timestamp(6) // วันที่ได้รับจริง
+  notes            String?   @db.Text
+  created_by       Int?
+  created_at       DateTime  @default(now())
+  updated_at       DateTime  @updatedAt
+
+  // Relations
+  purchase_items purchase_order_items[]
+}
+
+// รายการสินค้าในใบสั่งซื้อ
+model purchase_order_items {
+  id                Int       @id @default(autoincrement())
+  purchase_order_id Int
+  product_id        Int
+  quantity_ordered  Int // จำนวนที่สั่ง
+  quantity_received Int       @default(0) // จำนวนที่ได้รับ
+  unit_cost         Decimal   @db.Decimal(10, 2) // ราคาต่อหน่วย
+  total_cost        Decimal   @db.Decimal(10, 2) // ราคารวม
+  batch_number      String?   @db.VarChar(50)
+  expiry_date       DateTime? @db.Timestamp(6)
+  notes             String?   @db.Text
+
+  // Relations
+  purchase_order purchase_orders @relation(fields: [purchase_order_id], references: [id], onDelete: Cascade)
+  product        Product         @relation(fields: [product_id], references: [id], onDelete: Cascade)
+
+  @@index([purchase_order_id])
+  @@index([product_id])
+}
+
+// การชำระเงิน
+model payments {
+  id             Int    @id @default(autoincrement())
+  order_id       Int    @unique
+  payment_method String // 'promptpay', 'bank_transfer', 'cash'
+  payment_status String @default("pending") // 'pending', 'paid', 'failed', 'refunded'
+
+  // PromptPay QR Code
+  qr_code_data String? // ข้อมูล QR Code
+  qr_code_url  String? // URL ของ QR Code image
+
+  // Payment Details
+  amount       Decimal @db.Decimal(10, 2)
+  reference_id String? @unique // Reference number สำหรับการโอนเงิน
+
+  // Receipt/Slip Information
+  slip_image_url   String? // URL ของรูปสลิป
+  slip_upload_time DateTime? // เวลาที่อัปโหลดสลิป
+
+  // OCR Results
+  ocr_amount     Decimal?  @db.Decimal(10, 2) // จำนวนเงินจาก OCR
+  ocr_date       DateTime? // วันที่จาก OCR
+  ocr_time       String? // เวลาจาก OCR
+  ocr_ref_number String? // เลขอ้างอิงจาก OCR
+  ocr_confidence Float? // ความแม่นยำของ OCR (0-1)
+  ocr_raw_data   Json? // ข้อมูล OCR แบบเต็ม
+
+  // Verification
+  verified_by        Int? // ID ของแอดมินที่ยืนยัน
+  verified_at        DateTime? // เวลาที่ยืนยัน
+  verification_notes String? // หมายเหตุการยืนยัน
+
+  // Auto-verification
+  auto_verified     Boolean @default(false) // ยืนยันอัตโนมัติหรือไม่
+  auto_verify_score Float? // คะแนนการยืนยันอัตโนมัติ
+
+  // Timestamps
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  expires_at DateTime? // เวลาหมดอายุของการชำระเงิน
+
+  // Relations
+  order            orders         @relation(fields: [order_id], references: [id], onDelete: Cascade)
+  verified_by_user users?         @relation("VerifiedBy", fields: [verified_by], references: [id])
+  payment_logs     payment_logs[] // เพิ่ม relation กับ payment_logs
+
+  @@map("payments")
+}
+
+// การตั้งค่าสารมชำระเงิน
+model payment_settings {
+  id Int @id @default(autoincrement())
+
+  // PromptPay Settings
+  promptpay_enabled Boolean @default(false)
+  promptpay_id      String? // เบอร์โทรหรือ Tax ID สำหรับ PromptPay
+  promptpay_name    String? // ชื่อบัญชี PromptPay
+  promptpay_qr_type String? @default("phone") // 'phone' หรือ 'tax_id'
+
+  // Bank Transfer Settings
+  bank_transfer_enabled Boolean @default(true)
+ 
+
+  // COD Settings
+  cod_enabled    Boolean  @default(false)
+  cod_fee        Decimal? @default(0) @db.Decimal(10, 2)
+  cod_max_amount Decimal? @default(0) @db.Decimal(10, 2) // เพิ่มบรรทัดนี้
+
+  // Credit Card Settings (สำหรับอนาคต)
+  credit_card_enabled Boolean @default(false)
+
+  // Auto-verification Settings
+  auto_verify_enabled      Boolean  @default(false)
+  auto_verify_amount_limit Decimal? @default(10000) @db.Decimal(10, 2)
+
+  // General Settings
+  payment_timeout_hours Int     @default(24)
+  require_payment_proof Boolean @default(true)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  bank_accounts         bank_accounts[]
+
+  @@map("payment_settings")
+}
+
+
+// ✅ สร้าง model ใหม่สำหรับ bank_accounts
+model bank_accounts {
+  id                  Int      @id @default(autoincrement())
+  payment_setting_id  Int
+  bank_name          String   @db.VarChar(255)
+  account_name       String   @db.VarChar(255)
+  account_number     String   @db.VarChar(50)
+  branch             String?  @db.VarChar(255)
+  bank_icon          String?  
+  sort_order         Int      @default(0)
+  is_active          Boolean  @default(true)
+  created_at         DateTime @default(now())
+  updated_at         DateTime @updatedAt
+  
+  // ความสัมพันธ์กับ payment_settings
+  payment_settings    payment_settings @relation(fields: [payment_setting_id], references: [id])
+  
+  @@map("bank_accounts")
+}
+
+
+
+// Log การชำระเงิน
+model payment_logs {
+  id         Int      @id @default(autoincrement())
+  payment_id Int
+  action     String // 'created', 'slip_uploaded', 'verified', 'failed', etc.
+  old_status String?
+  new_status String?
+  details    Json? // รายละเอียดเพิ่มเติม
+  created_by Int? // ID ของผู้ดำเนินการ (null = system)
+  created_at DateTime @default(now())
+
+  // Relations
+  payment payments @relation(fields: [payment_id], references: [id], onDelete: Cascade)
+  user    users?   @relation(fields: [created_by], references: [id])
+
+  @@map("payment_logs")
+}
+
+model reviews {
+  id         Int      @id @default(autoincrement())
+  product_id Int
+  user_id    Int
+  rating     Int // 1-5 stars
+  comment    String?
+  created_at DateTime @default(now())
+
+  // Relations
+  product Product @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  user    users   @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("reviews")
+}
+
+// Inventory Management Models
+model inventory_movements {
+  id             Int      @id @default(autoincrement())
+  product_id     Int
+  movement_type  String // 'in', 'out', 'adjustment'
+  quantity       Int // บวก = เข้า, ลบ = ออก
+  reference_type String? // 'order', 'purchase', 'adjustment', 'return'
+  reference_id   Int? // ID ของ order หรือ reference อื่น
+  reason         String? // เหตุผลการปรับปรุง
+  notes          String?
+  created_by     Int? // ผู้ทำรายการ
+  created_at     DateTime @default(now())
+
+  // Relations
+  product Product @relation(fields: [product_id], references: [id], onDelete: Cascade)
+
+  @@map("inventory_movements")
+}
+
+// ===========================================
+// COUPON SYSTEM MODELS
+// ===========================================
+
+// ตารางคูปอง/รหัสส่วนลด
+model Coupon {
+  id          Int     @id @default(autoincrement())
+  code        String  @unique @db.VarChar(50) // รหัสคูปอง เช่น "SAVE50", "NEWYEAR2024"
+  name        String  @db.VarChar(255) // ชื่อคูปอง
+  description String? @db.Text // คำอธิบายคูปอง
+
+  // ประเภทส่วนลด
+  discount_type  String  @db.VarChar(20) // "percentage" หรือ "fixed_amount"
+  discount_value Decimal @db.Decimal(10, 2) // ค่าส่วนลด
+
+  // เงื่อนไขการใช้
+  min_order_amount    Decimal? @db.Decimal(10, 2) // ยอดขั้นต่ำ
+  max_discount_amount Decimal? @db.Decimal(10, 2) // ส่วนลดสูงสุด (สำหรับ percentage)
+
+  // จำนวนการใช้
+  usage_limit          Int? // จำนวนครั้งที่ใช้ได้ทั้งหมด
+  usage_count          Int  @default(0) // จำนวนครั้งที่ใช้ไปแล้ว
+  usage_limit_per_user Int? // จำกัดการใช้ต่อผู้ใช้
+
+  // วันที่
+  start_date DateTime @db.Timestamp(6) // วันที่เริ่มใช้งาน
+  end_date   DateTime @db.Timestamp(6) // วันที่หมดอายุ
+
+  // สถานะ
+  is_active Boolean @default(true)
+
+  // เงื่อนไขเพิ่มเติม
+  applicable_categories String? @db.Text // JSON array ของ category IDs ที่ใช้ได้
+  applicable_products   String? @db.Text // JSON array ของ product IDs ที่ใช้ได้
+  minimum_quantity      Int? // จำนวนสินค้าขั้นต่ำ
+
+  // ข้อมูลผู้สร้าง
+  created_by String?  @db.VarChar(100) // admin user id หรือชื่อ
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // ความสัมพันธ์
+  coupon_usages CouponUsage[]
+  orders        orders[]      @relation("OrderCoupon") // คำสั่งซื้อที่ใช้คูปองนี้
+
+  @@index([code])
+  @@index([is_active])
+  @@index([start_date, end_date])
+  @@index([discount_type])
+  @@map("coupons")
+}
+
+// ประวัติการใช้คูปอง
+model CouponUsage {
+  id        Int     @id @default(autoincrement())
+  coupon_id Int
+  user_id   Int? // ถ้ามี user system
+  email     String? @db.VarChar(255) // หรือใช้ email แทน
+  order_id  Int? // อ้างอิงไปยัง order
+
+  // ข้อมูลการใช้งาน
+  discount_amount Decimal @db.Decimal(10, 2) // จำนวนส่วนลดที่ได้จริง
+  order_amount    Decimal @db.Decimal(10, 2) // ยอดคำสั่งซื้อตอนใช้คูปอง
+
+  used_at DateTime @default(now())
+
+  // ความสัมพันธ์
+  coupon Coupon  @relation(fields: [coupon_id], references: [id], onDelete: Cascade)
+  user   users?  @relation(fields: [user_id], references: [id])
+  order  orders? @relation(fields: [order_id], references: [id])
+
+  @@index([coupon_id])
+  @@index([user_id])
+  @@index([email])
+  @@index([used_at])
+  @@map("coupon_usages")
+}
+
+// ===================================
+// ANALYTICS MODELS (ระบบติดตามการเข้าชม)
+// ===================================
+
+model page_views {
+  id          Int      @id @default(autoincrement())
+  page_url    String   @db.VarChar(500)
+  user_ip     String?  @db.VarChar(45)
+  user_agent  String?  @db.Text
+  referrer    String?  @db.VarChar(500)
+  session_id  String?  @db.VarChar(100)
+  user_id     Int?     // ถ้า user login อยู่
+  created_at  DateTime @default(now())
+  
+  // Relations
+  user        users?   @relation(fields: [user_id], references: [id])
+  
+  @@index([created_at])
+  @@index([page_url])
+  @@index([user_ip])
+  @@map("page_views")
+}
+
+model daily_stats {
+  id           Int      @id @default(autoincrement())
+  date         DateTime @db.Date @unique
+  total_views  Int      @default(0)
+  unique_views Int      @default(0)
+  new_users    Int      @default(0)
+  orders_count Int      @default(0)
+  revenue      Decimal? @db.Decimal(10, 2) @default(0)
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+  
+  @@map("daily_stats")
+}
+
+model contact_setting {
+  id         Int      @id @default(autoincrement())
+  address    String
+  phone      String
+  email      String
+  business_hours_first String?
+  business_hours_two   String?
+  facebook   String?
+  tiktok     String?
+  line       String?
+  map_embed  String? // สำหรับ Google Map iframe
+  updated_at DateTime @updatedAt
+  created_at DateTime @default(now())
+}

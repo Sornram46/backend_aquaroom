@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <title>Admin Login</title>
+  <link rel="stylesheet" href="/admin/css/style.css">
+</head>
+<body class="login-bg">
+  <form id="login-form" class="login-form-container">
+    <div class="login-logo">
+      <img src="https://cdn-icons-png.flaticon.com/512/3135/3135715.png" alt="Admin Logo">
+    </div>
+    <h2>Admin Login</h2>
+    <div class="login-desc">เข้าสู่ระบบเพื่อจัดการหลังบ้าน</div>
+    <label for="username">Username</label>
+    <input type="text" id="username" placeholder="Username" required />
+    <label for="password">Password</label>
+    <input type="password" id="password" placeholder="Password" required />
+    <button type="submit">เข้าสู่ระบบ</button>
+    <div id="login-error" class="hidden"></div>
+    <div class="login-copyright">© 2024 AquaRoom Admin</div>
+  </form>
+  <script src="/admin/js/login.js"></script>
+</body>
+</html>

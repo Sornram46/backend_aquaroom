@@ -1,0 +1,428 @@
+/* Additional custom styles can go here */
+/* .loader {
+  border-top-color: #4F46E5;
+  -webkit-animation: spinner 1.5s linear infinite;
+  animation: spinner 1.5s linear infinite;
+}
+
+@-webkit-keyframes spinner {
+  0% { -webkit-transform: rotate(0deg); }
+  100% { -webkit-transform: rotate(360deg); }
+}
+
+@keyframes spinner {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.custom-loader {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-end;
+  height: 3rem;
+}
+.custom-loader span {
+  display: block;
+  width: 0.9rem;
+  height: 0.9rem;
+  background: #4F46E5;
+  border-radius: 50%;
+  animation: bounce 0.7s infinite alternate;
+}
+.custom-loader span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+.custom-loader span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+@keyframes bounce {
+  to {
+    transform: translateY(-1rem);
+    opacity: 0.6;
+  }
+} */
+
+/* Fish Loader from Uiverse.io by 20essentials */
+.custom-fish-loader-wrapper {
+  position: relative;
+  width: 250px;
+  height: 250px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.fish-loader {
+  --size: 250px;
+  width: var(--size);
+  height: var(--size);
+  border: 4px solid #fff;
+  border-radius: 50%;
+  position: relative;
+  --current-gray: #444;
+  background-color: var(--current-gray);
+  transform-origin: 50% 100%;
+  animation: rotarBall 1s linear alternate infinite both;
+}
+.fish-loader .cap {
+  width: 50%;
+  height: 18%;
+  border-radius: 50%;
+  border: inherit;
+  left: 50%;
+  position: absolute;
+  top: -4%;
+  transform: translateX(-50%);
+  background-color: var(--current-gray);
+}
+.fish-loader .shadow-top {
+  position: absolute;
+  width: 55%;
+  height: 25%;
+  border-radius: 50%;
+  background-color: #fff3;
+  left: 50%;
+  top: 19%;
+  transform: translateX(-50%) scale(0.9);
+}
+.fish-loader .circle {
+  width: 96%;
+  height: 96%;
+  background-color: #20a5e1;
+  border-radius: inherit;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  clip-path: polygon(0 50%, 100% 50%, 100% 100%, 0 100%);
+  animation: rotarCicle 1.5s linear alternate infinite both;
+}
+.fish-loader .circle-top {
+  background-color: #40c9ff;
+  width: 96%;
+  height: 10%;
+  position: absolute;
+  border-radius: 50%;
+  top: 45.5%;
+  left: 50%;
+  transform: translateX(-50%);
+  animation: rotarCircleTop 1.5s linear alternate infinite both;
+}
+.fish-loader .fish {
+  position: absolute;
+  bottom: 50px;
+  width: 50px;
+  height: 50px;
+  animation: moveFish 2s linear infinite both;
+}
+.shadow-bottom {
+  zoom: 0.8;
+  position: absolute;
+  top: calc(50% + 125px);
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 275px;
+  height: 40px;
+  z-index: -1;
+  border-radius: 50%;
+  background-color: #000a;
+  filter: blur(20px);
+}
+
+
+/* Toast Notification Styles */
+.toast-notification {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  background: #10b981;
+  color: white;
+  padding: 12px 16px;
+  border-radius: 8px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+  z-index: 9999;
+  transform: translateX(100%);
+  transition: transform 0.3s ease-in-out;
+}
+
+.toast-notification.show {
+  transform: translateX(0);
+}
+
+.toast-notification.error {
+  background: #ef4444;
+}
+
+.toast-notification.warning {
+  background: #f59e0b;
+}
+
+.toast-notification.info {
+  background: #3b82f6;
+}
+
+/* Copy Button Styles */
+.copy-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  background: #f3f4f6;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  color: #6b7280;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.copy-btn:hover {
+  background: #e5e7eb;
+  color: #374151;
+  border-color: #9ca3af;
+}
+
+.copy-btn:active {
+  transform: scale(0.95);
+}
+
+/* Bank Icon Styles */
+.bank-icon {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+  border-radius: 4px;
+}
+
+.bank-account-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 16px;
+  background: #f9fafb;
+  transition: all 0.2s ease;
+}
+
+.bank-account-card:hover {
+  border-color: #d1d5db;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+
+
+@keyframes moveFish {
+  0% {
+    left: 10%;
+    transform: scaleX(1);
+  }
+  50% {
+    left: calc(90% - 40px);
+    transform: scaleX(1);
+  }
+  51% {
+    left: calc(90% - 40px);
+    transform: scaleX(-1);
+  }
+  100% {
+    left: 10%;
+    transform: scaleX(-1);
+  }
+}
+@keyframes rotarBall {
+  0% {
+    transform: rotate(-10deg);
+  }
+  100% {
+    transform: rotate(10deg);
+  }
+}
+@keyframes rotarCircleTop {
+  0% {
+    transform: translateX(-50%) rotate(10deg);
+  }
+  100% {
+    transform: translateX(-50%) rotate(-10deg);
+  }
+}
+@keyframes rotarCicle {
+  0% {
+    transform: translate(-50%, -50%) rotate(10deg);
+  }
+  100% {
+    transform: translate(-50%, -50%) rotate(-10deg);
+  }
+}
+
+/* เพิ่มใน style.css หรือใน <style> tag */
+
+/* Notification Dropdown Animation */
+#notification-dropdown {
+  animation: slideDown 0.2s ease-out;
+  transform-origin: top right;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Notification Item Hover Effect */
+.notification-item {
+  transition: background-color 0.2s ease;
+}
+
+.notification-item:hover {
+  background-color: #f9fafb;
+}
+
+/* Badge Pulse Animation */
+#notification-badge {
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.1);
+  }
+}
+
+/* Notification Bell Shake Animation */
+.notification-shake {
+  animation: shake 0.5s ease-in-out;
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-5px); }
+  75% { transform: translateX(5px); }
+}
+
+/* Line Clamp for Text Truncation */
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+
+
+
+
+/* ...existing code... */
+
+/* Login Page Custom Styles */
+body.login-bg {
+  min-height: 100vh;
+  background: linear-gradient(135deg, #e0e7ff 0%, #fff 60%, #c7d2fe 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.login-form-container {
+  background: rgba(255,255,255,0.95);
+  padding: 2.5rem 2rem;
+  border-radius: 1.25rem;
+  box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.15);
+  width: 100%;
+  max-width: 380px;
+  border: 1px solid #e0e7ff;
+}
+
+.login-form-container h2 {
+  font-size: 2rem;
+  font-weight: bold;
+  color: #4338ca;
+  text-align: center;
+  margin-bottom: 0.5rem;
+}
+
+.login-form-container .login-desc {
+  color: #6b7280;
+  font-size: 0.95rem;
+  text-align: center;
+  margin-bottom: 1.5rem;
+}
+
+.login-form-container label {
+  display: block;
+  font-size: 1rem;
+  color: #374151;
+  margin-bottom: 0.3rem;
+  font-weight: 500;
+}
+
+.login-form-container input[type="text"],
+.login-form-container input[type="password"] {
+  width: 100%;
+  padding: 0.7rem 1rem;
+  border: 1px solid #c7d2fe;
+  border-radius: 0.6rem;
+  font-size: 1rem;
+  margin-bottom: 1.2rem;
+  transition: border 0.2s, box-shadow 0.2s;
+  background: #f9fafb;
+}
+
+.login-form-container input[type="text"]:focus,
+.login-form-container input[type="password"]:focus {
+  border-color: #6366f1;
+  outline: none;
+  box-shadow: 0 0 0 2px #6366f133;
+}
+
+.login-form-container button[type="submit"] {
+  width: 100%;
+  background: #6366f1;
+  color: #fff;
+  padding: 0.7rem 0;
+  border: none;
+  border-radius: 0.6rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+  margin-bottom: 0.5rem;
+  box-shadow: 0 2px 8px 0 #6366f122;
+}
+
+.login-form-container button[type="submit"]:hover {
+  background: #4338ca;
+}
+
+#login-error {
+  color: #ef4444;
+  text-align: center;
+  font-size: 1rem;
+  margin-top: 0.5rem;
+}
+
+.login-logo {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 1rem;
+}
+
+.login-logo img {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  box-shadow: 0 2px 8px #6366f122;
+  border: 2px solid #c7d2fe;
+}
+
+.login-copyright {
+  text-align: center;
+  color: #a1a1aa;
+  font-size: 0.85rem;
+  margin-top: 1.5rem;
+}
+
+/* ...existing code... */
