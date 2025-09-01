@@ -1,4 +1,3 @@
-
 class OrdersManager {
   constructor() {
     this.currentPage = 1;
@@ -22,10 +21,15 @@ class OrdersManager {
       
       if (this.currentSearch) {
         params.append('search', this.currentSearch);
+        console.log('Searching for:', this.currentSearch); // เพิ่ม debug
       }
+      
+      console.log('API URL:', `/api/admin/orders?${params}`); // เพิ่ม debug
       
       const response = await fetch(`/api/admin/orders?${params}`);
       const data = await response.json();
+      
+      console.log('API Response:', data); // เพิ่ม debug
       
       if (data.success) {
         this.renderOrdersTable(data.orders);
@@ -793,7 +797,11 @@ ordersManager.viewOrderDetail = async function(orderId) {
                   <div class="border rounded p-2 bg-white">
                     <p class="text-xs text-gray-600">อัพโหลดเมื่อ: ${this.formatDate(proof.uploaded_at)}</p>
                     <p class="text-xs">สถานะ: <span class="px-1 py-0.5 rounded text-xs ${proof.status === 'approved' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}">${proof.status}</span></p>
-                    <a href="${proof.file_path}" target="_blank" class="text-blue-600 hover:text-blue-800 text-xs">ดูหลักฐาน</a>
+                    <a href="${proof.file_path || '#'}" 
+                       onclick="window.open('${proof.file_path}', '_blank'); return false;" 
+                       class="text-blue-600 hover:text-blue-800 text-xs">
+                       ดูหลักฐาน
+                    </a>
                   </div>
                 `).join('')}
               </div>
@@ -964,3 +972,42 @@ ordersManager.showUpdateStatusModal = function(orderId, currentOrderStatus, curr
     }
   });
 };
+
+// Create Order (Frontend)
+async function createOrder(orderData) {
+  try {
+    const response = await fetch('/api/orders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(orderData)
+    });
+    const data = await response.json();
+    
+    // ตรวจสอบว่าดึง order_number อย่างถูกต้องหรือไม่
+    const orderNumber = data.order_number || data.order?.order_number;
+    console.log('Order Number:', orderNumber);
+    alert(`สั่งซื้อสำเร็จ! หมายเลขคำสั่งซื้อของคุณคือ ${orderNumber}`);
+    
+  } catch (error) {
+    console.error('Error creating order:', error);
+    alert('เกิดข้อผิดพลาดในการสั่งซื้อ กรุณาลองอีกครั้ง');
+  }
+}
+
+// Track Order
+async function trackOrder(orderNumber) {
+  try {
+    const response = await fetch(`/api/orders/track/${orderNumber}`);
+    const data = await response.json();
+
+    if (data.success) {
+      console.log('📦 Order data:', data.data);
+      alert(`ติดตามคำสั่งซื้อสำเร็จ: ${data.data.order_number}`);
+    } else {
+      throw new Error(data.message);
+    }
+  } catch (error) {
+    console.error('❌ Error tracking order:', error);
+    alert('เกิดข้อผิดพลาดในการติดตามคำสั่งซื้อ');
+  }
+}

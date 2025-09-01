@@ -5,6 +5,8 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")    // ใช้ direct host ตอน migrate/introspect
+  // shadowDatabaseUrl = env("DIRECT_URL") // ตัวเลือก: ช่วยตอนใช้ `prisma migrate dev
 }
 
 model Product {
@@ -29,6 +31,19 @@ model Product {
   delivery_time           String?  @default("2-3 วัน")
   shipping_notes          String?
   special_handling        Boolean  @default(false)
+
+  // เพิ่มฟิลด์สำหรับข้อมูลในแท็บ
+  specifications  String?   @db.Text  // ข้อมูลคุณสมบัติ (JSON หรือ HTML)
+  features        String?   @db.Text  // คุณสมบัติพิเศษ
+  shipping_info   String?   @db.Text  // ข้อมูลการจัดส่ง
+  warranty_info   String?   @db.Text  // ข้อมูลการรับประกัน
+  return_policy   String?   @db.Text  // นโยบายการคืนสินค้า
+  care_instructions String? @db.Text  // วิธีการดูแล
+  dimensions      String?   @db.VarChar(255)  // ขนาด
+  weight          String?   @db.VarChar(100)  // น้ำหนัก
+  material        String?   @db.VarChar(255)  // วัสดุ
+  country_origin  String?   @db.VarChar(100)  // ประเทศผู้ผลิต
+
 
   // 🐠 เพิ่มการตั้งค่าค่าจัดส่งพิเศษ
   has_special_shipping   Boolean  @default(false) // มีค่าจัดส่งพิเศษหรือไม่
@@ -287,6 +302,17 @@ model homepage_setting {
   cta_button_1_link String?
   cta_button_2_text String?
   cta_button_2_link String?
+
+
+
+  // เพิ่มฟิลด์สำหรับ URL ของปุ่ม
+  carousel_1_button_text String? // ข้อความปุ่ม carousel 1
+  carousel_1_button_url  String? // URL ปุ่ม carousel 1
+  carousel_2_button_text String? // ข้อความปุ่ม carousel 2  
+  carousel_2_button_url  String? // URL ปุ่ม carousel 2
+  carousel_3_button_text String? // ข้อความปุ่ม carousel 3
+  carousel_3_button_url  String? // URL ปุ่ม carousel 3
+
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt

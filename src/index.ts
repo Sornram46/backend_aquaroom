@@ -3227,70 +3227,6 @@ app.post('/api/admin/inventory/alerts/generate', async (req: Request, res: Respo
   }
 });
 
-// Update checkAndCreateAlert function to handle errors better
-async function checkAndCreateAlert(productId: number, currentStock: number, minStock: number) {
-  try {
-    // ลบแจ้งเตือนเก่าที่ไม่จำเป็นแล้ว
-    await prisma.inventory_alerts.updateMany({
-      where: {
-        product_id: productId,
-        alert_type: { in: ['low_stock', 'out_of_stock'] },
-        is_active: true
-      },
-      data: { is_active: false }
-    });
-    
-    let alertType = '';
-    let alertLevel = 'info';
-    let title = '';
-    let message = '';
-    
-    if (currentStock === 0) {
-      alertType = 'out_of_stock';
-      alertLevel = 'critical';
-      title = 'สินค้าหมด';
-      message = 'สินค้าหมดแล้ว ต้องเติมสต็อกด่วน';
-    } else if (currentStock <= minStock) {
-      alertType = 'low_stock';
-      alertLevel = 'warning';
-      title = 'สต็อกเหลือน้อย';
-      message = `สต็อกเหลือ ${currentStock} ชิ้น (ขั้นต่ำ ${minStock} ชิ้น)`;
-    }
-    
-    if (alertType) {
-      // ตรวจสอบว่ามีแจ้งเตือนประเภทเดียวกันอยู่แล้วหรือไม่
-      const existingAlert = await prisma.inventory_alerts.findFirst({
-        where: {
-          product_id: productId,
-          alert_type: alertType,
-          is_active: true,
-          is_read: false
-        }
-      });
-      
-      if (!existingAlert) {
-        await prisma.inventory_alerts.create({
-          data: {
-            product_id: productId,
-            alert_type: alertType,
-            alert_level: alertLevel,
-            title: title,
-            message: message,
-            current_stock: currentStock,
-            threshold_value: minStock,
-            priority: alertLevel === 'critical' ? 5 : alertLevel === 'warning' ? 3 : 1
-          }
-        });
-        
-        console.log(`✅ Created ${alertType} alert for product ${productId}`);
-      }
-    }
-    
-  } catch (error) {
-    console.error('❌ Error creating alert:', error);
-    throw error; // Re-throw เพื่อให้ caller handle ได้
-  }
-}
 
 
 
@@ -4786,6 +4722,11 @@ const bankAccountsArray = (settings?.bank_accounts as any[] || []).map((account:
 
 
 
+
+
+
+
+
 // ✅ API สำหรับ Admin - จัดการธนาคารแยก
 app.get('/api/admin/bank-accounts', async (req: Request, res: Response) => {
   try {
@@ -4991,6 +4932,88 @@ app.get('/api/contact-setting', async (req, res) => {
   }
 });
 
+
+
+// =====================================
+// API สำหรับ แนบหลักฐานการโอน
+// =====================================
+// เพิ่มใน index.ts
+app.post('/api/upload/payment-proof', handleFileUploadWithBusboy, async (req: Request, res: Response) => {
+  try {
+    const files = (req as any).files as any[];
+    
+    if (!files || files.length === 0) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'No files uploaded' 
+      });
+    }
+
+    const file = files[0];
+    console.log('Uploading payment proof:', file.originalname);
+
+    // ตรวจสอบ file type
+    if (!file.mimetype.startsWith('image/')) {
+      return res.status(400).json({
+        success: false,
+        error: 'กรุณาอัปโหลดไฟล์รูปภาพเท่านั้น'
+      });
+    }
+
+    // ตรวจสอบ file size (5MB limit)
+    if (file.size > 5 * 1024 * 1024) {
+      return res.status(400).json({
+        success: false,
+        error: 'ไฟล์มีขนาดใหญ่เกิน 5MB'
+      });
+    }
+
+    const fileExt = file.originalname.split('.').pop()?.toLowerCase() || 'jpg';
+    const fileName = `payment-proof-${Date.now()}-${Math.random().toString(36).substring(2, 8)}.${fileExt}`;
+
+    // อัปโหลดไป Supabase
+    const { data, error } = await supabase
+      .storage
+      .from(process.env.SUPABASE_BUCKET!)
+      .upload(`payment-proofs/${fileName}`, file.buffer, {
+        contentType: file.mimetype,
+        upsert: false,
+        cacheControl: '3600'
+      });
+
+    if (error) {
+      console.error('Supabase upload error:', error);
+      return res.status(500).json({
+        success: false,
+        error: 'ไม่สามารถอัปโหลดไฟล์ได้'
+      });
+    }
+
+    // สร้าง Public URL
+    const { data: publicUrlData } = supabase
+      .storage
+      .from(process.env.SUPABASE_BUCKET!)
+      .getPublicUrl(`payment-proofs/${fileName}`);
+
+    const publicUrl = publicUrlData.publicUrl;
+
+    console.log('✅ Payment proof uploaded:', publicUrl);
+
+    res.json({ 
+      success: true, 
+      file_url: publicUrl,
+      file_name: fileName
+    });
+
+  } catch (error: any) {
+    console.error('Payment proof upload error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Upload failed',
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
+  }
+});
 
 
 
@@ -5216,87 +5239,1162 @@ app.post('/api/calculate-shipping', async (req: Request, res: Response) => {
 });
 
 
+app.get('/api/orders', async (req: Request, res: Response) => {
+  try {
+    const user_id = req.query.user_id as string;
+    
+    console.log('🔍 Loading orders for user:', user_id);
+    
+    if (!user_id) {
+      return res.status(400).json({
+        success: false,
+        message: 'กรุณาระบุ user_id'
+      });
+    }
+    
+    const userId = parseInt(user_id);
+    if (isNaN(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'user_id ไม่ถูกต้อง'
+      });
+    }
+    
+    // ดึงคำสั่งซื้อของ user
+    const orders = await prisma.orders.findMany({
+      where: { user_id: userId },
+      include: {
+        user_addresses: {
+          select: {
+            name: true,
+            phone: true,
+            address_line1: true,
+            address_line2: true,
+            district: true,
+            city: true,
+            province: true,
+            postal_code: true
+          }
+        },
+        order_items: {
+          include: {
+            products: {
+              select: {
+                id: true,
+                name: true,
+                image_url: true,
+                price: true
+              }
+            }
+          }
+        },
+        payment_proofs: {
+          select: {
+            id: true,
+            file_path: true,
+            status: true,
+            uploaded_at: true
+          }
+        }
+      },
+      orderBy: { created_at: 'desc' }
+    });
+    
+    // จัดรูปแบบข้อมูล
+    const formattedOrders = orders.map(order => ({
+      id: order.id,
+      order_number: order.order_number,
+      order_status: order.order_status,
+      payment_status: order.payment_status,
+      payment_method: order.payment_method,
+      total_amount: Number(order.total_amount),
+      subtotal: Number(order.subtotal),
+      shipping_fee: Number(order.shipping_fee),
+      discount: Number(order.discount),
+      tracking_number: order.tracking_number,
+      shipping_company: order.shipping_company,
+      estimated_delivery: order.estimated_delivery,
+      notes: order.notes,
+      coupon_code: order.coupon_code,
+      created_at: order.created_at,
+      updated_at: order.updated_at,
+      
+      // ที่อยู่จัดส่ง
+      shipping_address: order.user_addresses ? {
+        name: order.user_addresses.name,
+        phone: order.user_addresses.phone,
+        full_address: `${order.user_addresses.address_line1}${order.user_addresses.address_line2 ? ' ' + order.user_addresses.address_line2 : ''} ${order.user_addresses.district} ${order.user_addresses.city} ${order.user_addresses.province} ${order.user_addresses.postal_code}`
+      } : null,
+      
+      // รายการสินค้า
+      items: order.order_items.map(item => ({
+        id: item.id,
+        product_id: item.product_id,
+        product_name: item.products?.name || 'ไม่ระบุ',
+        quantity: item.quantity,
+        price: Number(item.price),
+        total: Number(item.total),
+        image_url: item.products?.image_url
+      })),
+      
+      // หลักฐานการชำระเงิน
+      payment_proofs: order.payment_proofs,
+      
+      // สถิติ
+      summary: {
+        total_items: order.order_items.length,
+        total_quantity: order.order_items.reduce((sum, item) => sum + item.quantity, 0),
+        has_payment_proof: order.payment_proofs.length > 0
+      }
+    }));
+    
+    console.log(`✅ Found ${orders.length} orders for user ${userId}`);
+    
+    res.json({
+      success: true,
+      data: formattedOrders,
+      total: orders.length
+    });
+    
+  } catch (error) {
+    console.error('❌ Error loading user orders:', error);
+    res.status(500).json({
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการดึงคำสั่งซื้อ'
+    });
+  }
+});
+
+
+// แทนที่โค้ดเดิมใน POST /api/orders 
+// แก้ไขใน src/index.ts ส่วน POST /api/orders
+app.post('/api/orders', async (req: Request, res: Response) => {
+  try {
+    const {
+      user_id,
+      address_id, 
+      total_amount,
+      payment_method,
+      payment_status = 'pending',
+      order_status = 'pending', 
+      items,
+      shipping_fee = 0,
+      discount_amount = 0,
+      coupon_code,
+      notes
+    } = req.body;
+
+    console.log('Creating new order:', req.body);
+
+    // ตรวจสอบข้อมูลที่จำเป็น
+    if (!user_id || !address_id || !total_amount || !items || items.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'ข้อมูลไม่ครบถ้วน: ต้องมี user_id, address_id, total_amount และ items'
+      });
+    }
+
+    // ✅ ตรวจสอบสต็อกก่อนสร้างคำสั่งซื้อ
+    console.log('🔍 Checking stock availability...');
+    for (const item of items) {
+      const product = await prisma.product.findUnique({
+        where: { id: item.product_id }
+      });
+
+      if (!product) {
+        return res.status(400).json({
+          success: false,
+          message: `ไม่พบสินค้า ID: ${item.product_id}`
+        });
+      }
+
+      if (product.stock < item.quantity) {
+        return res.status(400).json({
+          success: false,
+          message: `สินค้า "${product.name}" มีสต็อกไม่เพียงพอ (เหลือ ${product.stock} ชิ้น)`
+        });
+      }
+    }
+
+    // ตรวจสอบว่า user และ address มีอยู่จริง
+    const [userExists, addressExists] = await Promise.all([
+      prisma.users.findUnique({ where: { id: user_id } }),
+      prisma.user_addresses.findUnique({ where: { id: address_id } })
+    ]);
+
+    if (!userExists) {
+      return res.status(400).json({
+        success: false,
+        message: 'ไม่พบข้อมูลผู้ใช้'
+      });
+    }
+
+    if (!addressExists) {
+      return res.status(400).json({
+        success: false,
+        message: 'ไม่พบที่อยู่จัดส่ง'
+      });
+    }
+
+    // สร้าง order number
+    const orderNumber = `ORD${Date.now()}`;
+    console.log('🏷️ Generated order number:', orderNumber);
+
+    // คำนวณ subtotal
+    const calculatedSubtotal = parseFloat(total_amount) - parseFloat(shipping_fee) + parseFloat(discount_amount);
+
+    // ✅ ใช้ Transaction เพื่อให้การสร้างคำสั่งซื้อและการตัดสต็อกเป็น atomic operation
+    const result = await prisma.$transaction(async (prisma) => {
+      // สร้าง order ใหม่
+      const newOrder = await prisma.orders.create({
+        data: {
+          order_number: orderNumber,
+          user_id: user_id,
+          address_id: address_id,
+          total_amount: parseFloat(total_amount),
+          subtotal: calculatedSubtotal,
+          shipping_fee: parseFloat(shipping_fee) || 0,
+          discount: parseFloat(discount_amount) || 0,
+          payment_method,
+          payment_status,
+          order_status,
+          coupon_code: coupon_code || null,
+          notes: notes || null,
+          created_at: new Date(),
+          updated_at: new Date()
+        }
+      });
+
+      console.log('📋 Created order:', {
+        id: newOrder.id,
+        order_number: newOrder.order_number,
+        total_amount: newOrder.total_amount
+      });
+
+      // เพิ่มรายการสินค้าในคำสั่งซื้อ และตัดสต็อก
+      if (items && items.length > 0) {
+        const orderItemsData = items.map((item: any) => ({
+          order_id: newOrder.id,
+          product_id: item.product_id,
+          quantity: parseInt(item.quantity),
+          price: parseFloat(item.price),
+          total: parseFloat(item.price) * parseInt(item.quantity)
+        }));
+
+        // เพิ่ม order items
+        await prisma.order_items.createMany({
+          data: orderItemsData
+        });
+
+        // ✅ ตัดสต็อกสินค้าทีละรายการ
+        for (const item of items) {
+          const productId = item.product_id;
+          const quantity = parseInt(item.quantity);
+
+          console.log(`📦 Reducing stock for product ${productId} by ${quantity}`);
+
+          // อัปเดตสต็อกสินค้า
+          await prisma.product.update({
+            where: { id: productId },
+            data: {
+              stock: {
+                decrement: quantity // ลดสต็อกตามจำนวนที่สั่ง
+              },
+              updated_at: new Date()
+            }
+          });
+
+          // ✅ บันทึกประวัติการเคลื่อนไหวสต็อก (ถ้ามีตาราง stock_movements)
+            try {
+              // ดึงข้อมูลสต็อกก่อนและหลังการเปลี่ยนแปลง
+              const productBeforeUpdate = await prisma.product.findUnique({
+                where: { id: productId },
+                select: { stock: true }
+              });
+              
+              const quantityBefore = productBeforeUpdate?.stock || 0;
+              const quantityAfter = quantityBefore - quantity;
+              
+            await prisma.stock_movements.create({
+              data: {
+                product_id: productId,
+                movement_type: 'out',
+                quantity: quantity,
+                quantity_before: quantityBefore,
+                quantity_after: quantityAfter,
+                reference_type: 'order',
+                reference_id: newOrder.id,
+                notes: `การสั่งซื้อ #${orderNumber}`,
+                created_at: new Date(),
+                // เพิ่ม relation ถ้าจำเป็น
+               
+              }
+              });
+          } catch (stockError) {
+            console.warn('⚠️ Failed to create stock movement record:', stockError);
+            // ไม่ให้ stock movement error ทำให้การสั่งซื้อล้มเหลว
+          }
+
+          // ✅ ตรวจสอบและสร้างแจ้งเตือนสต็อกต่ำ (ถ้ามี)
+          try {
+            const updatedProduct = await prisma.product.findUnique({
+              where: { id: productId },
+              include: { inventory_setting: true }
+            });
+
+            if (updatedProduct) {
+              const minStock = updatedProduct.inventory_setting?.min_stock || 5;
+              await checkAndCreateAlert(productId, updatedProduct.stock, minStock);
+            }
+          } catch (alertError) {
+            console.warn('⚠️ Failed to create inventory alert:', alertError);
+          }
+        }
+
+        console.log('✅ Stock updated successfully for all items');
+      }
+
+      return newOrder;
+    });
+
+    console.log('✅ Order created successfully with stock reduction:', result.id);
+
+    // ส่ง response
+    res.json({
+      success: true,
+      message: 'สร้างคำสั่งซื้อสำเร็จ',
+      order: {
+        id: result.id,
+        order_number: result.order_number,
+        total_amount: Number(result.total_amount),
+        subtotal: Number(result.subtotal),
+        shipping_fee: Number(result.shipping_fee),
+        discount: Number(result.discount),
+        payment_method: result.payment_method,
+        payment_status: result.payment_status,
+        order_status: result.order_status,
+        created_at: result.created_at
+      },
+      order_id: result.id,
+      order_number: result.order_number
+    });
+
+  } catch (error: any) {
+    console.error('❌ Create order error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการสร้างคำสั่งซื้อ',
+      error: process.env.NODE_ENV === 'development' ? (error as any).message : undefined
+    });
+  }
+});
+
+// ✅ ฟังก์ชันสำหรับตรวจสอบและสร้างแจ้งเตือนสต็อกต่ำ
+async function checkAndCreateAlert(productId: number, currentStock: number, minStock: number) {
+  try {
+    // ลบแจ้งเตือนเก่าที่ไม่จำเป็นแล้ว
+    await prisma.inventory_alerts.updateMany({
+      where: {
+        product_id: productId,
+        alert_type: { in: ['low_stock', 'out_of_stock'] },
+        is_active: true
+      },
+      data: { is_active: false }
+    });
+    
+    let alertType = '';
+    let alertLevel = 'info';
+    let title = '';
+    let message = '';
+    
+    if (currentStock === 0) {
+      alertType = 'out_of_stock';
+      alertLevel = 'critical';
+      title = 'สินค้าหมด';
+      message = 'สินค้าหมดแล้ว ต้องเติมสต็อกด่วน';
+    } else if (currentStock <= minStock) {
+      alertType = 'low_stock';
+      alertLevel = 'warning';
+      title = 'สต็อกเหลือน้อย';
+      message = `สต็อกเหลือ ${currentStock} ชิ้น (ขั้นต่ำ ${minStock} ชิ้น)`;
+    }
+    
+    if (alertType) {
+      // ตรวจสอบว่ามีแจ้งเตือนประเภทเดียวกันอยู่แล้วหรือไม่
+      const existingAlert = await prisma.inventory_alerts.findFirst({
+        where: {
+          product_id: productId,
+          alert_type: alertType,
+          is_active: true,
+          is_read: false
+        }
+      });
+      
+      if (!existingAlert) {
+        await prisma.inventory_alerts.create({
+          data: {
+            product_id: productId,
+            alert_type: alertType,
+            alert_level: alertLevel,
+            title: title,
+            message: message,
+            current_stock: currentStock,
+            threshold_value: minStock,
+            priority: alertLevel === 'critical' ? 5 : alertLevel === 'warning' ? 3 : 1
+          }
+        });
+        
+        console.log(`✅ Created ${alertType} alert for product ${productId}`);
+      }
+    }
+    
+  } catch (error) {
+    console.error('❌ Error creating alert:', error);
+    throw error;
+  }
+}
+// เพิ่มใน src/index.ts ในส่วน API ROUTES
+
+// ===========================================
+// ORDER TRACKING API (สำหรับ Frontend)
+// ===========================================
+
+// GET /api/orders/{orderId}/items - ดึงรายการสินค้าในคำสั่งซื้อ
+app.get('/api/orders/:orderId/items', async (req: Request, res: Response) => {
+  try {
+    const orderId = parseInt(req.params.orderId);
+    
+    console.log('🛒 Loading order items for order:', orderId);
+    
+    if (isNaN(orderId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Order ID ไม่ถูกต้อง'
+      });
+    }
+    
+    // ตรวจสอบว่าคำสั่งซื้อมีอยู่จริง
+    const order = await prisma.orders.findUnique({
+      where: { id: orderId },
+      select: { id: true, order_number: true, order_status: true }
+    });
+    
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: 'ไม่พบคำสั่งซื้อที่ระบุ'
+      });
+    }
+    
+    // ดึงรายการสินค้า
+    const orderItems = await prisma.order_items.findMany({
+      where: { order_id: orderId },
+      include: {
+        products: {
+          select: {
+            id: true,
+            name: true,
+            description: true,
+            image_url: true,
+            image_url_two: true,
+            image_url_three: true,
+            image_url_four: true,
+            price: true,
+            stock: true
+          }
+        }
+      },
+      orderBy: { id: 'asc' }
+    });
+    
+    // จัดรูปแบบข้อมูล
+    const formattedItems = orderItems.map(item => {
+      const product = item.products;
+      
+      // หาภาพที่ใช้แสดง
+      let displayImage = null;
+      if (product) {
+        if (product.image_url) {
+          displayImage = product.image_url;
+        } else if (product.image_url_two) {
+          displayImage = product.image_url_two;
+        } else if (product.image_url_three) {
+          displayImage = product.image_url_three;
+        } else if (product.image_url_four) {
+          displayImage = product.image_url_four;
+        }
+      }
+      
+      return {
+        id: item.id,
+        product_id: item.product_id,
+        product_name: product?.name || 'ไม่ระบุชื่อสินค้า',
+        product_description: product?.description || '',
+        quantity: item.quantity,
+        price: Number(item.price),
+        total: Number(item.total),
+        
+        // ภาพสินค้า
+        image_url: displayImage,
+        images: product ? {
+          primary: product.image_url,
+          secondary: product.image_url_two,
+          tertiary: product.image_url_three,
+          quaternary: product.image_url_four
+        } : null,
+        
+        // ข้อมูลเสริม
+        product_stock: product?.stock || 0,
+        product_current_price: product?.price ? Number(product.price) : Number(item.price),
+        product_exists: !!product,
+        has_image: !!displayImage
+      };
+    });
+    
+    console.log(`✅ Found ${orderItems.length} items for order ${orderId}`);
+    
+    
+    res.json({
+      success: true,
+      data: {
+        order: {
+          id: order.id,
+          order_number: order.order_number,
+          order_status: order.order_status
+        },
+        items: formattedItems,
+        summary: {
+          total_items: formattedItems.length,
+          total_quantity: formattedItems.reduce((sum, item) => sum + item.quantity, 0),
+          items_with_images: formattedItems.filter(item => item.has_image).length
+        }
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Error loading order items:', error);
+    res.status(500).json({
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการดึงรายการสินค้า'
+    });
+  }
+});
+
+
+
+
+
+app.get('/api/orders/track/:orderNumber', async (req: Request, res: Response) => {
+  try {
+    const { orderNumber } = req.params;
+
+    console.log('🔍 Tracking order:', orderNumber);
+
+    if (!orderNumber) {
+      return res.status(400).json({
+        success: false,
+        message: 'กรุณาระบุหมายเลขคำสั่งซื้อ'
+      });
+    }
+
+    // ค้นหาคำสั่งซื้อด้วย order_number พร้อมข้อมูลครบถ้วน
+    const order = await prisma.orders.findUnique({
+      where: { order_number: orderNumber },
+      include: {
+        users: {
+          select: {
+            id: true,
+            name: true,
+            email: true
+          }
+        },
+        user_addresses: {
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            address_line1: true,
+            address_line2: true,
+            district: true,
+            city: true,
+            province: true,
+            postal_code: true
+          }
+        },
+        order_items: {
+          include: {
+            products: {
+              select: {
+                id: true,
+                name: true,
+                description: true,
+                image_url: true,
+                image_url_two: true,
+                image_url_three: true,
+                image_url_four: true,
+                price: true,
+                stock: true
+              }
+            }
+          },
+          orderBy: {
+            id: 'asc'
+          }
+        },
+        payment_proofs: {
+          select: {
+            id: true,
+            file_path: true,
+            original_filename: true,
+            status: true,
+            uploaded_at: true,
+            notes: true
+          },
+          orderBy: {
+            uploaded_at: 'desc'
+          }
+        }
+      }
+    });
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: 'ไม่พบข้อมูลคำสั่งซื้อ'
+      });
+    }
+
+    console.log('📦 Order found:', {
+      id: order.id,
+      order_number: order.order_number,
+      items_count: order.order_items.length
+    });
+
+    // Debug: แสดงข้อมูล order_items
+    console.log('🛒 Order items details:', order.order_items.map(item => ({
+      id: item.id,
+      product_id: item.product_id,
+      product_name: item.products?.name,
+      quantity: item.quantity,
+      price: item.price,
+      total: item.total,
+      image_url: item.products?.image_url,
+      has_product: !!item.products
+    })));
+
+    
+
+    // ส่งข้อมูลคำสั่งซื้อกลับไป พร้อมข้อมูลครบถ้วน
+    const response = {
+      success: true,
+      data: {
+        // ข้อมูลคำสั่งซื้อ
+        id: order.id,
+        order_number: order.order_number,
+        order_status: order.order_status,
+        payment_status: order.payment_status,
+        payment_method: order.payment_method,
+        
+        // ยอดเงิน
+        total_amount: Number(order.total_amount),
+        subtotal: Number(order.subtotal),
+        shipping_fee: Number(order.shipping_fee),
+        discount: Number(order.discount),
+        
+        // วันที่
+        created_at: order.created_at,
+        updated_at: order.updated_at,
+        
+        // ข้อมูลการจัดส่ง
+        tracking_number: order.tracking_number,
+        shipping_company: order.shipping_company,
+        estimated_delivery: order.estimated_delivery,
+        
+        // หมายเหตุ
+        notes: order.notes,
+        coupon_code: order.coupon_code,
+        
+        // ข้อมูลลูกค้า
+        customer: {
+          id: order.users?.id,
+          name: order.users?.name || 'ไม่ระบุ',
+          email: order.users?.email || 'ไม่ระบุ'
+        },
+        
+        // ที่อยู่จัดส่ง
+        shipping_address: order.user_addresses ? {
+          id: order.user_addresses.id,
+          name: order.user_addresses.name,
+          phone: order.user_addresses.phone,
+          address_line1: order.user_addresses.address_line1,
+          address_line2: order.user_addresses.address_line2,
+          district: order.user_addresses.district,
+          city: order.user_addresses.city,
+          province: order.user_addresses.province,
+          postal_code: order.user_addresses.postal_code,
+          full_address: `${order.user_addresses.address_line1}${order.user_addresses.address_line2 ? ' ' + order.user_addresses.address_line2 : ''} ${order.user_addresses.district} ${order.user_addresses.city} ${order.user_addresses.province} ${order.user_addresses.postal_code}`
+        } : null,
+        
+        // 🛒 รายการสินค้า (แก้ไขส่วนนี้!)
+        items: order.order_items.map(item => {
+          const product = item.products;
+          
+          // หาภาพที่ใช้แสดง (เลือกภาพแรกที่มี)
+          let displayImage = null;
+          if (product) {
+            if (product.image_url) {
+              displayImage = product.image_url;
+            } else if (product.image_url_two) {
+              displayImage = product.image_url_two;
+            } else if (product.image_url_three) {
+              displayImage = product.image_url_three;
+            } else if (product.image_url_four) {
+              displayImage = product.image_url_four;
+            }
+          }
+          
+          return {
+            id: item.id,
+            product_id: item.product_id,
+            product_name: product?.name || 'ไม่ระบุชื่อสินค้า',
+            product_description: product?.description || '',
+            quantity: item.quantity,
+            price: Number(item.price),
+            total: Number(item.total),
+            
+            // ✅ ภาพสินค้า - ส่งทุกภาพที่มี
+            image_url: displayImage, // ภาพหลักที่จะแสดง
+            images: product ? {
+              primary: product.image_url,
+              secondary: product.image_url_two,
+              tertiary: product.image_url_three,
+              quaternary: product.image_url_four
+            } : null,
+            
+            // ข้อมูลเสริม
+            product_stock: product?.stock || 0,
+            product_current_price: product?.price ? Number(product.price) : Number(item.price),
+            
+            // สถานะสินค้า
+            product_exists: !!product,
+            has_image: !!displayImage
+          };
+        }),
+        
+        // หลักฐานการชำระเงิน
+        payment_proofs: order.payment_proofs.map(proof => ({
+          id: proof.id,
+          file_path: proof.file_path,
+          original_filename: proof.original_filename,
+          status: proof.status,
+          uploaded_at: proof.uploaded_at,
+          notes: proof.notes
+        })),
+        
+        // สถิติ
+        summary: {
+          total_items: order.order_items.length,
+          total_quantity: order.order_items.reduce((sum, item) => sum + item.quantity, 0),
+          has_payment_proof: order.payment_proofs.length > 0,
+          items_with_images: order.order_items.filter(item => {
+            const product = item.products;
+            return product && (product.image_url || product.image_url_two || product.image_url_three || product.image_url_four);
+          }).length
+        }
+      }
+    };
+
+    console.log('✅ Response prepared:', {
+      order_number: response.data.order_number,
+      items_count: response.data.items.length,
+      items_with_images: response.data.summary.items_with_images,
+      payment_proofs_count: response.data.payment_proofs.length
+    });
+
+    // Debug: แสดงข้อมูลภาพของแต่ละ item
+    console.log('🖼️ Items image info:', response.data.items.map(item => ({
+      product_name: item.product_name,
+      has_image: item.has_image,
+      image_url: item.image_url ? item.image_url.substring(0, 50) + '...' : null
+    })));
+
+    res.json(response);
+    
+  } catch (error) {
+    console.error('❌ Error tracking order:', error);
+    res.status(500).json({
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการติดตามคำสั่งซื้อ',
+      error: process.env.NODE_ENV === 'development' ? (error as any).message : undefined
+    });
+  }
+});
+
+// GET /api/orders/search - ค้นหาคำสั่งซื้อด้วยเบอร์โทรหรืออีเมล
+app.get('/api/orders/search', async (req: Request, res: Response) => {
+  try {
+    const { phone, email, order_number } = req.query;
+
+    console.log('🔍 Searching orders with:', { phone, email, order_number });
+
+    if (!phone && !email && !order_number) {
+      return res.status(400).json({
+        success: false,
+        message: 'กรุณาระบุเบอร์โทร อีเมล หรือหมายเลขคำสั่งซื้อ'
+      });
+    }
+
+    // สร้าง where condition
+    const whereCondition: any = {};
+
+    if (order_number) {
+      whereCondition.order_number = order_number;
+    } else {
+      const userConditions: any = {};
+      
+      if (email) {
+        userConditions.email = email;
+      }
+
+      const addressConditions: any = {};
+      
+      if (phone) {
+        addressConditions.phone = phone;
+      }
+
+      whereCondition.OR = [];
+
+      if (Object.keys(userConditions).length > 0) {
+        whereCondition.OR.push({
+          users: userConditions
+        });
+      }
+
+      if (Object.keys(addressConditions).length > 0) {
+        whereCondition.OR.push({
+          user_addresses: addressConditions
+        });
+      }
+    }
+
+    // ค้นหาคำสั่งซื้อ
+    const orders = await prisma.orders.findMany({
+      where: whereCondition,
+      include: {
+        users: {
+          select: {
+            name: true,
+            email: true
+          }
+        },
+        user_addresses: {
+          select: {
+            name: true,
+            phone: true
+          }
+        }
+      },
+      orderBy: {
+        created_at: 'desc'
+      },
+      take: 10 // จำกัดผลลัพธ์ไม่เกิน 10 รายการ
+    });
+
+    if (orders.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'ไม่พบคำสั่งซื้อที่ตรงกับข้อมูลที่ระบุ'
+      });
+    }
+
+    // จัดรูปแบบข้อมูล
+    const formattedOrders = orders.map(order => ({
+      id: order.id,
+      order_number: order.order_number,
+      order_status: order.order_status,
+      payment_status: order.payment_status,
+      total_amount: Number(order.total_amount),
+      created_at: order.created_at,
+      customer_name: order.users?.name || order.user_addresses?.name || 'ไม่ระบุ',
+      customer_email: order.users?.email || 'ไม่ระบุ',
+      customer_phone: order.user_addresses?.phone || 'ไม่ระบุ'
+    }));
+
+    console.log(`✅ Found ${orders.length} orders`);
+
+    res.json({
+      success: true,
+      data: formattedOrders,
+      total: orders.length
+    });
+
+  } catch (error) {
+    console.error('❌ Error searching orders:', error);
+    res.status(500).json({
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการค้นหาคำสั่งซื้อ'
+    });
+  }
+});
+
+// POST /api/orders/:orderNumber/upload-payment - อัปโหลดหลักฐานการชำระเงิน
+app.post('/api/orders/:orderNumber/upload-payment', handleFileUploadWithBusboy, async (req: Request, res: Response) => {
+  try {
+    const { orderNumber } = req.params;
+    const files = (req as any).files as any[];
+    const { notes } = req.body;
+
+    console.log('📤 Uploading payment proof for order:', orderNumber);
+
+    if (!files || files.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'กรุณาเลือกไฟล์หลักฐานการชำระเงิน'
+      });
+    }
+
+    // ตรวจสอบคำสั่งซื้อ
+    const order = await prisma.orders.findUnique({
+      where: { order_number: orderNumber }
+    });
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: 'ไม่พบคำสั่งซื้อหมายเลขนี้'
+      });
+    }
+
+    const file = files[0];
+
+    // ตรวจสอบไฟล์
+    if (!file.mimetype.startsWith('image/')) {
+      return res.status(400).json({
+        success: false,
+        message: 'กรุณาอัปโหลดไฟล์รูปภาพเท่านั้น'
+      });
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      return res.status(400).json({
+        success: false,
+        message: 'ไฟล์มีขนาดใหญ่เกิน 5MB'
+      });
+    }
+
+    // อัปโหลดไป Supabase
+    const fileExt = file.originalname.split('.').pop()?.toLowerCase() || 'jpg';
+    const fileName = `payment_${order.id}_${Date.now()}.${fileExt}`;
+
+    const { data, error } = await supabase
+      .storage
+      .from(process.env.SUPABASE_BUCKET!)
+      .upload(`payment-proofs/${fileName}`, file.buffer, {
+        contentType: file.mimetype,
+        upsert: false
+      });
+
+    if (error) {
+      console.error('Supabase upload error:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'ไม่สามารถอัปโหลดไฟล์ได้'
+      });
+    }
+
+    // สร้าง Public URL
+    const { data: publicUrlData } = supabase
+      .storage
+      .from(process.env.SUPABASE_BUCKET!)
+      .getPublicUrl(`payment-proofs/${fileName}`);
+
+    const fileUrl = publicUrlData.publicUrl;
+
+    // บันทึกลงฐานข้อมูล
+    const paymentProof = await prisma.payment_proofs.create({
+      data: {
+        order_id: order.id,
+        file_path: fileUrl,
+        original_filename: file.originalname,
+        file_size: file.size,
+        notes: notes || null,
+        status: 'pending'
+      }
+    });
+
+    console.log('✅ Payment proof uploaded successfully');
+
+    res.json({
+      success: true,
+      message: 'อัปโหลดหลักฐานการชำระเงินสำเร็จ',
+      data: {
+        id: paymentProof.id,
+        file_path: paymentProof.file_path,
+        uploaded_at: paymentProof.uploaded_at
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error uploading payment proof:', error);
+    res.status(500).json({
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการอัปโหลดหลักฐานการชำระเงิน'
+    });
+  }
+});
+
 
 // ==============================
 // API ส่วนของ Login เข้า Addmin 
 // ==============================
 
-app.post('/api/admin/login', async (req, res) => {
-  const { username, password } = req.body;
-  if (!username || !password) {
-    return res.status(400).json({
-      success: false,
-      message: 'กรุณาระบุชื่อผู้ใช้และรหัสผ่าน'
+// แก้ไข POST /api/admin/login
+app.post('/api/admin/login', async (req: Request, res: Response) => {
+  try {
+    const { username, password } = req.body;
+    console.log('🔐 Admin login attempt:', username);
+
+    if (!username || !password) {
+      return res.json({ 
+        success: false, 
+        message: 'กรุณากรอกชื่อผู้ใช้และรหัสผ่าน' 
+      });
+    }
+
+    // ค้นหาผู้ใช้
+    const user = await prisma.users.findFirst({
+      where: {
+        OR: [
+          { email: username },
+          { name: username }
+        ],
+        role: 'admin',
+        is_active: true
+      }
+    });
+
+    if (!user) {
+      return res.json({ 
+        success: false, 
+        message: 'ไม่พบผู้ใช้หรือไม่มีสิทธิ์เข้าถึง' 
+      });
+    }
+
+    // เช็ค password
+    const isPasswordValid = await bcrypt.compare(password, user.password || '');
+    if (!isPasswordValid) {
+      return res.json({ 
+        success: false, 
+        message: 'รหัสผ่านไม่ถูกต้อง' 
+      });
+    }
+
+    // สร้าง JWT
+    const token = jwt.sign(
+      { 
+        userId: user.id, 
+        role: user.role, 
+        email: user.email 
+      },
+      process.env.JWT_SECRET || 'admin_token_secret',
+      { expiresIn: '1d' }
+    );
+
+    // ✅ แก้ไขชื่อ cookie ให้ตรงกัน
+    res.cookie('admin_token', token, { 
+      httpOnly: true, 
+      secure: false,
+      maxAge: 24 * 60 * 60 * 1000 // 1 วัน
+    });
+    
+    console.log('✅ Admin login successful:', user.email);
+    
+    res.json({ 
+      success: true, 
+      message: 'เข้าสู่ระบบสำเร็จ', 
+      token,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role
+      }
+    });
+
+  } catch (error: any) {
+    console.error('❌ Login error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'เกิดข้อผิดพลาดในระบบ' 
     });
   }
+});
 
-  // หา user จาก username หรือ email
-  const user = await prisma.users.findFirst({
-    where: {
-      OR: [
-        { name: username }
-      ]
-    }
+// ✅ แก้ไข logout API
+app.post('/api/admin/logout', (_req: Request, res: Response) => {
+  res.clearCookie('admin_token'); // ใช้ชื่อเดียวกัน
+  res.json({ 
+    success: true, 
+    message: 'ออกจากระบบแล้ว' 
   });
-
-  if (!user) {
-    return res.json({ success: false, message: 'ไม่พบผู้ใช้งานนี้' });
-  }
-
-  // เช็ค role ต้องเป็น admin
-  if (user.role !== 'admin') {
-    return res.json({ success: false, message: 'บัญชีนี้ไม่ใช่ผู้ดูแลระบบ' });
-  }
-
-  // เช็คสถานะ
-  if (!user.is_active) {
-    return res.json({ success: false, message: 'บัญชีนี้ถูกปิดใช้งาน' });
-  }
-
-  // เช็ค password
-  const isPasswordValid = await bcrypt.compare(password, user.password || '');
-  if (!isPasswordValid) {
-    return res.json({ success: false, message: 'รหัสผ่านไม่ถูกต้อง' });
-  }
-
-  // สร้าง JWT (หรือจะใช้ session ก็ได้)
-  const token = jwt.sign(
-    { userId: user.id, role: user.role, email: user.email },
-    process.env.JWT_SECRET || 'admin_token_secret',
-    { expiresIn: '1d' }
-  );
-
-  // ส่ง token กลับ (หรือ set cookie)
-  res.cookie('admin_token_secret', token, { httpOnly: true, secure: false });
-  res.json({ success: true, message: 'เข้าสู่ระบบสำเร็จ', token });
 });
 
-
-app.use('/admin', (req, res, next) => {
-  const token = req.cookies.admin_token;
-  if (!token) {
-    return res.redirect('/admin/login.html');
-  }
+// ✅ เพิ่ม API เช็ค session
+app.get('/api/admin/me', async (req: Request, res: Response) => {
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'admin_token_secret') as { id: number; email: string; role: string };
-    if (typeof decoded !== 'object' || decoded === null || (decoded as any).role !== 'admin') {
-      return res.redirect('/admin/login.html');
+    const token = req.cookies.admin_token;
+    
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        message: 'ไม่ได้เข้าสู่ระบบ'
+      });
     }
-    req.user = decoded as { id: number; email: string; role: string };
-    next();
-  } catch (err) {
-    return res.redirect('/admin/login.html');
+    
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'admin_token_secret') as any;
+    
+    // ดึงข้อมูล user ล่าสุด
+    const user = await prisma.users.findUnique({
+      where: { id: decoded.userId },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        is_active: true
+      }
+    });
+    
+    if (!user || !user.is_active || user.role !== 'admin') {
+      return res.status(401).json({
+        success: false,
+        message: 'บัญชีไม่ถูกต้องหรือไม่มีสิทธิ์'
+      });
+    }
+    
+    res.json({
+      success: true,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role
+      }
+    });
+    
+  } catch (error) {
+    console.error('Auth check error:', error);
+    res.status(401).json({
+      success: false,
+      message: 'Session หมดอายุ กรุณาเข้าสู่ระบบใหม่'
+    });
   }
 });
+
 app.post('/api/admin/logout', (_req, res) => {
   res.clearCookie('admin_token_secret');
   res.json({ success: true });
 });
-
-
-
-
-
 
 
 // Start server
