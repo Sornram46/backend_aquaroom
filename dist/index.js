@@ -5596,3 +5596,4 @@ process.on('SIGINT', async () => {
     await exports.prisma.$disconnect();
     process.exit(0);
 });
+exports.default = app;
