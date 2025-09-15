@@ -11,8 +11,6 @@
     "resolveJsonModule": true,
     "lib": ["es2020"],
     "allowJs": true,
-  "moduleResolution": "node",
-  "ignoreDeprecations": "6.0",
     "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"]

@@ -15,6 +15,7 @@ const path_1 = __importDefault(require("path"));
 const busboy_1 = __importDefault(require("busboy"));
 const express_session_1 = __importDefault(require("express-session"));
 const supabase_1 = require("./utils/supabase");
+const auth_middleware_1 = require("./middlewares/auth.middleware");
 // Load environment variables ก่อน
 dotenv_1.default.config();
 // Initialize Prisma client
@@ -156,6 +157,222 @@ app.get('/api/dashboard/stats', async (req, res) => {
     catch (error) {
         console.error('❌ Error fetching dashboard stats:', error);
         res.status(500).json({ error: 'Failed to fetch dashboard stats' });
+    }
+});
+// ===========================================
+// CUSTOMER AUTH ROUTES (/api/auth/*)
+// ===========================================
+const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret';
+function signUserToken(user) {
+    return jsonwebtoken_1.default.sign({ userId: user.id, role: user.role || 'customer' }, JWT_SECRET, { expiresIn: '7d' });
+}
+// Register
+app.post('/api/auth/register', async (req, res) => {
+    try {
+        const { name, email, password } = req.body || {};
+        if (!name || !email || !password) {
+            return res.status(400).json({ success: false, message: 'กรอกข้อมูลให้ครบถ้วน (name, email, password)' });
+        }
+        const existing = await exports.prisma.users.findUnique({ where: { email } });
+        if (existing) {
+            return res.status(409).json({ success: false, message: 'อีเมลนี้ถูกใช้งานแล้ว' });
+        }
+        const hashed = await bcrypt_1.default.hash(password, 10);
+        const user = await exports.prisma.users.create({
+            data: { name, email, password: hashed, role: 'customer', auth_provider: 'local', created_at: new Date(), updated_at: new Date() }
+        });
+        const token = signUserToken(user);
+        return res.json({ success: true, token, user: { id: user.id, name: user.name, email: user.email, role: user.role, avatar: user.avatar || null } });
+    }
+    catch (error) {
+        console.error('Register error:', error);
+        return res.status(500).json({ success: false, message: 'ไม่สามารถสมัครสมาชิกได้' });
+    }
+});
+// Login
+app.post('/api/auth/login', async (req, res) => {
+    try {
+        const { email, password } = req.body || {};
+        if (!email || !password) {
+            return res.status(400).json({ success: false, message: 'กรอกข้อมูลให้ครบถ้วน (email, password)' });
+        }
+        const user = await exports.prisma.users.findUnique({ where: { email } });
+        if (!user || !user.password) {
+            return res.status(401).json({ success: false, message: 'อีเมลหรือรหัสผ่านไม่ถูกต้อง' });
+        }
+        const match = await bcrypt_1.default.compare(password, user.password);
+        if (!match) {
+            return res.status(401).json({ success: false, message: 'อีเมลหรือรหัสผ่านไม่ถูกต้อง' });
+        }
+        await exports.prisma.users.update({ where: { id: user.id }, data: { last_login: new Date(), updated_at: new Date() } });
+        const token = signUserToken(user);
+        return res.json({ success: true, token, user: { id: user.id, name: user.name, email: user.email, role: user.role, avatar: user.avatar || null } });
+    }
+    catch (error) {
+        console.error('Login error:', error);
+        return res.status(500).json({ success: false, message: 'ไม่สามารถเข้าสู่ระบบได้' });
+    }
+});
+// Verify
+app.get('/api/auth/verify', async (req, res) => {
+    try {
+        const authHeader = req.headers.authorization || '';
+        if (!authHeader.startsWith('Bearer '))
+            return res.status(401).json({ success: false, message: 'ไม่ได้รับอนุญาต' });
+        const token = authHeader.split(' ')[1];
+        const decoded = jsonwebtoken_1.default.verify(token, JWT_SECRET);
+        const user = await exports.prisma.users.findUnique({ where: { id: decoded.userId } });
+        if (!user)
+            return res.status(401).json({ success: false, message: 'ไม่ได้รับอนุญาต' });
+        return res.json({ success: true, user: { id: user.id, name: user.name, email: user.email, role: user.role, avatar: user.avatar || null } });
+    }
+    catch (error) {
+        return res.status(401).json({ success: false, message: 'Token ไม่ถูกต้อง' });
+    }
+});
+// Refresh
+app.post('/api/auth/refresh', async (req, res) => {
+    try {
+        const authHeader = req.headers.authorization || '';
+        if (!authHeader.startsWith('Bearer '))
+            return res.status(401).json({ success: false, message: 'ไม่ได้รับอนุญาต' });
+        const token = authHeader.split(' ')[1];
+        const decoded = jsonwebtoken_1.default.verify(token, JWT_SECRET);
+        const user = await exports.prisma.users.findUnique({ where: { id: decoded.userId } });
+        if (!user)
+            return res.status(401).json({ success: false, message: 'ไม่ได้รับอนุญาต' });
+        const newToken = signUserToken(user);
+        return res.json({ success: true, token: newToken, user: { id: user.id, name: user.name, email: user.email, role: user.role, avatar: user.avatar || null } });
+    }
+    catch (error) {
+        return res.status(401).json({ success: false, message: 'Token ไม่ถูกต้อง' });
+    }
+});
+// Logout (stateless)
+app.post('/api/auth/logout', (_req, res) => {
+    return res.json({ success: true });
+});
+// Google login placeholder (optional)
+app.post('/api/auth/google', (_req, res) => {
+    return res.status(400).json({ success: false, message: 'ยังไม่เปิดใช้งาน Google Login' });
+});
+// ===========================================
+// USER PROFILE & ADDRESSES
+// ===========================================
+// Profile
+app.get('/api/user/profile', auth_middleware_1.auth, async (req, res) => {
+    try {
+        const user = await exports.prisma.users.findUnique({ where: { id: req.user.id } });
+        if (!user)
+            return res.status(404).json({ success: false, message: 'ไม่พบผู้ใช้' });
+        return res.json({ success: true, user: { id: user.id, name: user.name, email: user.email, role: user.role, avatar: user.avatar || null } });
+    }
+    catch (error) {
+        return res.status(500).json({ success: false, message: 'ไม่สามารถดึงข้อมูลผู้ใช้ได้' });
+    }
+});
+app.put('/api/user/profile', auth_middleware_1.auth, async (req, res) => {
+    try {
+        const { name, avatar } = req.body || {};
+        const updated = await exports.prisma.users.update({ where: { id: req.user.id }, data: { name: name ?? undefined, avatar: avatar ?? undefined, updated_at: new Date() } });
+        return res.json({ success: true, user: { id: updated.id, name: updated.name, email: updated.email, role: updated.role, avatar: updated.avatar || null } });
+    }
+    catch (error) {
+        return res.status(500).json({ success: false, message: 'อัปเดตโปรไฟล์ไม่สำเร็จ' });
+    }
+});
+// Addresses
+app.get('/api/user/addresses', auth_middleware_1.auth, async (req, res) => {
+    try {
+        const addresses = await exports.prisma.user_addresses.findMany({ where: { user_id: req.user.id }, orderBy: { updated_at: 'desc' } });
+        return res.json({ success: true, addresses });
+    }
+    catch (error) {
+        return res.status(500).json({ success: false, message: 'ไม่สามารถดึงที่อยู่ได้' });
+    }
+});
+app.post('/api/user/addresses', auth_middleware_1.auth, async (req, res) => {
+    try {
+        const { name, phone, address_line1, address_line2, district, city, province, postal_code, is_default } = req.body || {};
+        if (!name || !phone || !address_line1 || !district || !city || !province || !postal_code) {
+            return res.status(400).json({ success: false, message: 'กรอกข้อมูลที่อยู่ให้ครบ' });
+        }
+        if (is_default) {
+            await exports.prisma.user_addresses.updateMany({ where: { user_id: req.user.id, is_default: true }, data: { is_default: false } });
+        }
+        const created = await exports.prisma.user_addresses.create({
+            data: { user_id: req.user.id, name, phone, address_line1, address_line2, district, city, province, postal_code, is_default: !!is_default, created_at: new Date(), updated_at: new Date() }
+        });
+        return res.status(201).json({ success: true, address: created });
+    }
+    catch (error) {
+        return res.status(500).json({ success: false, message: 'ไม่สามารถเพิ่มที่อยู่ได้' });
+    }
+});
+app.put('/api/user/addresses/:id', auth_middleware_1.auth, async (req, res) => {
+    try {
+        const id = parseInt(req.params.id);
+        if (isNaN(id))
+            return res.status(400).json({ success: false, message: 'ID ไม่ถูกต้อง' });
+        const address = await exports.prisma.user_addresses.findUnique({ where: { id } });
+        if (!address || address.user_id !== req.user.id)
+            return res.status(404).json({ success: false, message: 'ไม่พบที่อยู่' });
+        const { is_default, ...rest } = req.body || {};
+        if (is_default) {
+            await exports.prisma.user_addresses.updateMany({ where: { user_id: req.user.id, is_default: true }, data: { is_default: false } });
+        }
+        const updated = await exports.prisma.user_addresses.update({ where: { id }, data: { ...rest, is_default: !!is_default, updated_at: new Date() } });
+        return res.json({ success: true, address: updated });
+    }
+    catch (error) {
+        return res.status(500).json({ success: false, message: 'อัปเดตที่อยู่ไม่สำเร็จ' });
+    }
+});
+app.delete('/api/user/addresses/:id', auth_middleware_1.auth, async (req, res) => {
+    try {
+        const id = parseInt(req.params.id);
+        if (isNaN(id))
+            return res.status(400).json({ success: false, message: 'ID ไม่ถูกต้อง' });
+        const address = await exports.prisma.user_addresses.findUnique({ where: { id } });
+        if (!address || address.user_id !== req.user.id)
+            return res.status(404).json({ success: false, message: 'ไม่พบที่อยู่' });
+        await exports.prisma.user_addresses.delete({ where: { id } });
+        return res.json({ success: true });
+    }
+    catch (error) {
+        return res.status(500).json({ success: false, message: 'ลบที่อยู่ไม่สำเร็จ' });
+    }
+});
+app.get('/api/user/addresses/default', auth_middleware_1.auth, async (req, res) => {
+    try {
+        const def = await exports.prisma.user_addresses.findFirst({ where: { user_id: req.user.id, is_default: true } });
+        return res.json({ success: true, address: def || null });
+    }
+    catch (error) {
+        return res.status(500).json({ success: false, message: 'ไม่สามารถดึงที่อยู่เริ่มต้นได้' });
+    }
+});
+app.get('/api/user/addresses/check', auth_middleware_1.auth, async (req, res) => {
+    try {
+        const count = await exports.prisma.user_addresses.count({ where: { user_id: req.user.id } });
+        return res.json({ success: true, hasAddress: count > 0, count });
+    }
+    catch (error) {
+        return res.status(500).json({ success: false, message: 'ตรวจสอบที่อยู่ไม่สำเร็จ' });
+    }
+});
+// User stats
+app.get('/api/user/stats', auth_middleware_1.auth, async (req, res) => {
+    try {
+        const [ordersCount, totalSpentAgg] = await Promise.all([
+            exports.prisma.orders.count({ where: { user_id: req.user.id } }),
+            exports.prisma.orders.aggregate({ _sum: { total_amount: true }, where: { user_id: req.user.id, payment_status: 'paid' } })
+        ]);
+        const totalSpent = Number(totalSpentAgg._sum.total_amount || 0);
+        return res.json({ success: true, ordersCount, totalSpent });
+    }
+    catch (error) {
+        return res.status(500).json({ success: false, message: 'ไม่สามารถดึงสถิติผู้ใช้ได้' });
     }
 });
 // API สำหรับดึงสินค้าทั้งหมด
@@ -4561,7 +4778,21 @@ app.post('/api/calculate-shipping', async (req, res) => {
 });
 app.get('/api/orders', async (req, res) => {
     try {
-        const user_id = req.query.user_id;
+        let user_id = req.query.user_id;
+        // ถ้าไม่ส่ง user_id มา ให้ลองอ่านจาก Authorization header
+        if (!user_id) {
+            const authHeader = req.headers.authorization || '';
+            if (authHeader.startsWith('Bearer ')) {
+                try {
+                    const token = authHeader.split(' ')[1];
+                    const decoded = jsonwebtoken_1.default.verify(token, JWT_SECRET);
+                    user_id = String(decoded.userId);
+                }
+                catch (e) {
+                    // ignore, will fail below
+                }
+            }
+        }
         console.log('🔍 Loading orders for user:', user_id);
         if (!user_id) {
             return res.status(400).json({
