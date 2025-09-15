@@ -68,7 +68,10 @@ app.use(session({
   secret: process.env.JWT_SECRET || 'admin-secret-key',
   resave: false,
   saveUninitialized: false,
-  cookie: { secure: false }
+  cookie: { 
+    secure: process.env.NODE_ENV === 'production',
+    maxAge: 24 * 60 * 60 * 1000 // 24 hours
+  }
 }));
 // Helper function สำหรับ handle file upload ด้วย busboy
 const handleFileUploadWithBusboy = (req: Request, res: Response, next: Function) => {
