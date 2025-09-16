@@ -1,124 +1,39 @@
 import { createClient } from '@supabase/supabase-js';
-import dotenv from 'dotenv';
 
-// โหลด environment variables
-dotenv.config();
+const supabaseUrl = process.env.SUPABASE_URL!;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
-// ตรวจสอบ environment variables
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-console.log('Supabase Config Check:');
-console.log('URL:', supabaseUrl ? '✅ Found' : '❌ Missing');
-console.log('Service Key:', supabaseServiceKey ? `✅ Found (${supabaseServiceKey.length} chars)` : '❌ Missing');
-
-// ตรวจสอบรูปแบบ URL
-if (supabaseUrl && !supabaseUrl.startsWith('https://')) {
-  throw new Error('SUPABASE_URL must start with https://');
+if (!supabaseUrl || !supabaseServiceKey) {
+  throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
 }
 
-// ตรวจสอบรูปแบบ JWT
-if (supabaseServiceKey && !supabaseServiceKey.startsWith('eyJ')) {
-  throw new Error('SUPABASE_SERVICE_ROLE_KEY appears to be invalid. JWT tokens should start with "eyJ"');
-}
-
-if (!supabaseUrl) {
-  throw new Error('SUPABASE_URL is missing. Please check your .env file');
-}
-
-if (!supabaseServiceKey) {
-  throw new Error('SUPABASE_SERVICE_ROLE_KEY is missing. Please check your .env file');
-}
-
-// สร้าง Supabase client สำหรับ server-side ด้วย service role key
 export const supabase = createClient(supabaseUrl, supabaseServiceKey, {
-  auth: {
-    autoRefreshToken: false,
-    persistSession: false
-  }
+  auth: { autoRefreshToken: false, persistSession: false },
 });
 
-// Test connection function
-export async function testSupabaseConnection() {
+export async function ensureBucketExists(bucket: string): Promise<boolean> {
   try {
-    console.log('Testing Supabase connection...');
-    console.log('URL:', supabaseUrl);
-    console.log('Service Key prefix:', supabaseServiceKey?.substring(0, 20) + '...');
-    
-    const { data, error } = await supabase
-      .storage
-      .listBuckets();
-    
+    const { data, error } = await supabase.storage.listBuckets();
     if (error) {
-      console.error('Supabase connection test failed:', error);
-      return false;
+      console.warn('listBuckets failed:', error.message);
+      return true; // อย่าบล็อก ให้ไปล้มที่ขั้น upload ถ้ามีปัญหาจริง
     }
-    
-    console.log('Supabase connection successful. Available buckets:', data?.map(b => b.name));
-    return true;
-  } catch (error) {
-    console.error('Supabase connection error:', error);
-    return false;
-  }
-}
-
-// Function to create bucket if not exists
-export async function ensureBucketExists(bucketName: string): Promise<boolean> {
-  try {
-    console.log(`Checking bucket: ${bucketName}`);
-    
-    // ตรวจสอบว่า bucket มีอยู่หรือไม่
-    const { data: buckets, error: listError } = await supabase.storage.listBuckets();
-
-    if (listError) {
-      // บางสภาพแวดล้อมอาจจำกัดสิทธิ์การ list buckets แต่ยังอัปโหลดได้
-      console.warn('Warning: listBuckets failed, proceeding optimistically:', listError);
-      return true; // อย่า block การอัปโหลดเพราะ list ผิดพลาด
-    }
-
-    const bucket = buckets?.find((b) => b.name === bucketName);
-    const bucketExists = !!bucket;
-
-    if (!bucketExists) {
-      console.log(`Creating bucket: ${bucketName}`);
-      // สร้าง bucket ใหม่ (public)
-      const { error } = await supabase.storage.createBucket(bucketName, {
+    const exists = data?.some(b => b.name === bucket);
+    if (!exists) {
+      const { error: createErr } = await supabase.storage.createBucket(bucket, {
         public: true,
-        allowedMimeTypes: ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'],
-        fileSizeLimit: 5242880, // 5MB
+        fileSizeLimit: '10MB',
       });
-
-      if (error) {
-        // หาก bucket ถูกสร้างไว้แล้วโดยระบบอื่น ให้ถือว่าสำเร็จ
-        const msg = (error as any)?.message?.toString().toLowerCase() || '';
-        const code = (error as any)?.code;
-        if (msg.includes('already exists') || code === '409' || code === 409) {
-          console.warn('Bucket already exists (from createBucket): proceeding');
-          return true;
-        }
-        console.error('Error creating bucket:', error);
+      if (createErr && !/exists/i.test(createErr.message)) {
+        console.error('createBucket error:', createErr.message);
         return false;
       }
-
-      console.log('Bucket created successfully:', bucketName);
-    } else {
-      console.log(`Bucket already exists: ${bucketName}`);
-      // ทำให้ bucket เป็น public ถ้าจำเป็น
-      if (bucket && (bucket as any).public === false) {
-        console.warn('Bucket is private; attempting to set public: true');
-        const { error: updateError } = await supabase.storage.updateBucket(bucketName, { public: true });
-        if (updateError) {
-          console.warn('Failed to update bucket to public. Public URLs may not work:', updateError);
-        } else {
-          console.log('Bucket visibility updated to public.');
-        }
-      }
     }
-
+    // พยายามตั้งให้ public (ถ้า private)
+    await supabase.storage.updateBucket(bucket, { public: true }).catch(() => {});
     return true;
-  } catch (error) {
-    console.error('Error ensuring bucket exists:', error);
-    // อย่าบล็อกการอัปโหลดด้วย hard failure ในขั้นตอนตรวจสอบ bucket
-    return true;
+  } catch (e) {
+    console.error('ensureBucketExists exception:', e);
+    return true; // อย่าบล็อก
   }
 }

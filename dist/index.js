@@ -644,6 +644,36 @@ app.delete('/api/categories/:id', (req, res, next) => {
 app.get('/', (req, res) => {
     res.send('Welcome to AquaRoom Admin API');
 });
+// Lightweight diagnostics: storage readiness
+app.get('/api/_diag/storage', async (_req, res) => {
+    try {
+        const hasUrl = !!process.env.SUPABASE_URL;
+        const hasServiceKey = !!process.env.SUPABASE_SERVICE_ROLE_KEY;
+        const bucket = process.env.SUPABASE_BUCKET || '';
+        // Avoid exposing secrets
+        let ensureResult = 'skipped (no bucket name)';
+        if (bucket) {
+            try {
+                ensureResult = await (0, supabase_1.ensureBucketExists)(bucket);
+            }
+            catch (e) {
+                ensureResult = `error: ${e?.message || 'unknown'}`;
+            }
+        }
+        res.json({
+            success: true,
+            env: {
+                SUPABASE_URL: hasUrl,
+                SUPABASE_SERVICE_ROLE_KEY: hasServiceKey,
+                SUPABASE_BUCKET: bucket || null,
+            },
+            ensureBucket: ensureResult,
+        });
+    }
+    catch (e) {
+        res.status(500).json({ success: false, error: e?.message || 'diag failed' });
+    }
+});
 // API สำหรับสร้างสินค้ารายการใหม่
 // แก้ไข API สำหรับสร้างสินค้าใหม่
 app.post('/api/products', (req, res, next) => {
@@ -810,10 +840,7 @@ app.post('/api/upload', handleFileUploadWithBusboy, (req, res, next) => {
             // ตรวจสอบและสร้าง bucket ถ้าจำเป็น
             const bucketReady = await (0, supabase_1.ensureBucketExists)(process.env.SUPABASE_BUCKET);
             if (!bucketReady) {
-                return res.status(500).json({
-                    success: false,
-                    error: 'Failed to initialize storage bucket'
-                });
+                console.warn('Bucket ensure reported false; attempting upload anyway');
             }
             const urls = [];
             for (const file of files) {
@@ -4563,7 +4590,10 @@ app.post('/api/upload/payment-proof', handleFileUploadWithBusboy, async (req, re
         if (!process.env.SUPABASE_BUCKET) {
             return res.status(500).json({ success: false, error: 'Server missing SUPABASE_BUCKET' });
         }
-        await (0, supabase_1.ensureBucketExists)(process.env.SUPABASE_BUCKET);
+        const bucketReadyPP = await (0, supabase_1.ensureBucketExists)(process.env.SUPABASE_BUCKET);
+        if (!bucketReadyPP) {
+            console.warn('Bucket ensure (payment-proof) reported false; attempting upload anyway');
+        }
         // อัปโหลดไป Supabase
         const { data, error } = await supabase_1.supabase
             .storage
@@ -4640,7 +4670,10 @@ app.post('/api/admin/payment-settings/upload-bank-icon', handleFileUploadWithBus
         if (!process.env.SUPABASE_BUCKET) {
             return res.status(500).json({ success: false, message: 'Server missing SUPABASE_BUCKET' });
         }
-        await (0, supabase_1.ensureBucketExists)(process.env.SUPABASE_BUCKET);
+        const bucketReadyIcon = await (0, supabase_1.ensureBucketExists)(process.env.SUPABASE_BUCKET);
+        if (!bucketReadyIcon) {
+            console.warn('Bucket ensure (bank-icon) reported false; attempting upload anyway');
+        }
         const { data, error } = await supabase_1.supabase
             .storage
             .from(process.env.SUPABASE_BUCKET)

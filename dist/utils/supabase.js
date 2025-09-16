@@ -77,7 +77,7 @@ async function ensureBucketExists(bucketName) {
             const { error } = await exports.supabase.storage.createBucket(bucketName, {
                 public: true,
                 allowedMimeTypes: ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'],
-                fileSizeLimit: 5242880, // 5MB
+                fileSizeLimit: '5MB',
             });
             if (error) {
                 // หาก bucket ถูกสร้างไว้แล้วโดยระบบอื่น ให้ถือว่าสำเร็จ

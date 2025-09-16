@@ -959,10 +959,7 @@ app.post('/api/upload', handleFileUploadWithBusboy, (req: Request, res: Response
       // ตรวจสอบและสร้าง bucket ถ้าจำเป็น
       const bucketReady = await ensureBucketExists(process.env.SUPABASE_BUCKET);
       if (!bucketReady) {
-        return res.status(500).json({
-          success: false,
-          error: 'Failed to initialize storage bucket'
-        });
+        console.warn('Bucket ensure reported false; attempting upload anyway');
       }
 
       const urls: string[] = [];
@@ -5230,7 +5227,10 @@ app.post('/api/upload/payment-proof', handleFileUploadWithBusboy, async (req: Re
     if (!process.env.SUPABASE_BUCKET) {
       return res.status(500).json({ success: false, error: 'Server missing SUPABASE_BUCKET' });
     }
-    await ensureBucketExists(process.env.SUPABASE_BUCKET);
+    const bucketReadyPP = await ensureBucketExists(process.env.SUPABASE_BUCKET);
+    if (!bucketReadyPP) {
+      console.warn('Bucket ensure (payment-proof) reported false; attempting upload anyway');
+    }
 
     // อัปโหลดไป Supabase
     const { data, error } = await supabase
@@ -5324,7 +5324,10 @@ app.post('/api/admin/payment-settings/upload-bank-icon', handleFileUploadWithBus
     if (!process.env.SUPABASE_BUCKET) {
       return res.status(500).json({ success: false, message: 'Server missing SUPABASE_BUCKET' });
     }
-    await ensureBucketExists(process.env.SUPABASE_BUCKET);
+    const bucketReadyIcon = await ensureBucketExists(process.env.SUPABASE_BUCKET);
+    if (!bucketReadyIcon) {
+      console.warn('Bucket ensure (bank-icon) reported false; attempting upload anyway');
+    }
 
     const { data, error } = await supabase
       .storage
