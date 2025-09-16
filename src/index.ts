@@ -88,12 +88,14 @@ const handleFileUploadWithBusboy = (req: Request, res: Response, next: Function)
     });
 
     file.on('end', () => {
+      const buffer = Buffer.concat(chunks);
       files.push({
         fieldname,
         originalname: filename,
         encoding,
         mimetype: mimeType,
-        buffer: Buffer.concat(chunks)
+        buffer,
+        size: buffer.length
       });
     });
   });
@@ -4480,6 +4482,12 @@ app.post('/api/admin/logo/upload', handleFileUploadWithBusboy, async (req: Reque
     const logoFile = files?.find(f => f.fieldname === 'logo');
     const darkLogoFile = files?.find(f => f.fieldname === 'darkLogo');
 
+    // ตรวจสอบและเตรียม bucket
+    if (!process.env.SUPABASE_BUCKET) {
+      return res.status(500).json({ success: false, message: 'Server missing SUPABASE_BUCKET' });
+    }
+    await ensureBucketExists(process.env.SUPABASE_BUCKET);
+
     // อัปโหลด Logo หลัก
     if (logoFile) {
       console.log('Uploading main logo:', logoFile.originalname);
@@ -4530,7 +4538,7 @@ app.post('/api/admin/logo/upload', handleFileUploadWithBusboy, async (req: Reque
       console.log('✅ Main logo uploaded:', logoUrl);
     }
 
-    // อัปโหลด Dark Logo
+  // อัปโหลด Dark Logo
     if (darkLogoFile) {
       console.log('Uploading dark logo:', darkLogoFile.originalname);
 
@@ -5188,6 +5196,11 @@ app.post('/api/upload/payment-proof', handleFileUploadWithBusboy, async (req: Re
     const fileExt = file.originalname.split('.').pop()?.toLowerCase() || 'jpg';
     const fileName = `payment-proof-${Date.now()}-${Math.random().toString(36).substring(2, 8)}.${fileExt}`;
 
+    if (!process.env.SUPABASE_BUCKET) {
+      return res.status(500).json({ success: false, error: 'Server missing SUPABASE_BUCKET' });
+    }
+    await ensureBucketExists(process.env.SUPABASE_BUCKET);
+
     // อัปโหลดไป Supabase
     const { data, error } = await supabase
       .storage
@@ -5276,6 +5289,11 @@ app.post('/api/admin/payment-settings/upload-bank-icon', handleFileUploadWithBus
     // อัปโหลดไป Supabase แทนการเก็บ local
     const fileExt = file.originalname.split('.').pop()?.toLowerCase() || 'png';
     const fileName = `bank-icon-${accountIndex}-${Date.now()}.${fileExt}`;
+
+    if (!process.env.SUPABASE_BUCKET) {
+      return res.status(500).json({ success: false, message: 'Server missing SUPABASE_BUCKET' });
+    }
+    await ensureBucketExists(process.env.SUPABASE_BUCKET);
 
     const { data, error } = await supabase
       .storage

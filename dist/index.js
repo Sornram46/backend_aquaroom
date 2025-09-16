@@ -43,7 +43,10 @@ app.use((0, express_session_1.default)({
     secret: process.env.JWT_SECRET || 'admin-secret-key',
     resave: false,
     saveUninitialized: false,
-    cookie: { secure: false }
+    cookie: {
+        secure: process.env.NODE_ENV === 'production',
+        maxAge: 24 * 60 * 60 * 1000 // 24 hours
+    }
 }));
 // Helper function สำหรับ handle file upload ด้วย busboy
 const handleFileUploadWithBusboy = (req, res, next) => {
@@ -57,12 +60,14 @@ const handleFileUploadWithBusboy = (req, res, next) => {
             chunks.push(chunk);
         });
         file.on('end', () => {
+            const buffer = Buffer.concat(chunks);
             files.push({
                 fieldname,
                 originalname: filename,
                 encoding,
                 mimetype: mimeType,
-                buffer: Buffer.concat(chunks)
+                buffer,
+                size: buffer.length
             });
         });
     });
@@ -3932,6 +3937,11 @@ app.post('/api/admin/logo/upload', handleFileUploadWithBusboy, async (req, res) 
         // หา logo files ตาม fieldname
         const logoFile = files?.find(f => f.fieldname === 'logo');
         const darkLogoFile = files?.find(f => f.fieldname === 'darkLogo');
+        // ตรวจสอบและเตรียม bucket
+        if (!process.env.SUPABASE_BUCKET) {
+            return res.status(500).json({ success: false, message: 'Server missing SUPABASE_BUCKET' });
+        }
+        await (0, supabase_1.ensureBucketExists)(process.env.SUPABASE_BUCKET);
         // อัปโหลด Logo หลัก
         if (logoFile) {
             console.log('Uploading main logo:', logoFile.originalname);
@@ -4550,6 +4560,10 @@ app.post('/api/upload/payment-proof', handleFileUploadWithBusboy, async (req, re
         }
         const fileExt = file.originalname.split('.').pop()?.toLowerCase() || 'jpg';
         const fileName = `payment-proof-${Date.now()}-${Math.random().toString(36).substring(2, 8)}.${fileExt}`;
+        if (!process.env.SUPABASE_BUCKET) {
+            return res.status(500).json({ success: false, error: 'Server missing SUPABASE_BUCKET' });
+        }
+        await (0, supabase_1.ensureBucketExists)(process.env.SUPABASE_BUCKET);
         // อัปโหลดไป Supabase
         const { data, error } = await supabase_1.supabase
             .storage
@@ -4623,6 +4637,10 @@ app.post('/api/admin/payment-settings/upload-bank-icon', handleFileUploadWithBus
         // อัปโหลดไป Supabase แทนการเก็บ local
         const fileExt = file.originalname.split('.').pop()?.toLowerCase() || 'png';
         const fileName = `bank-icon-${accountIndex}-${Date.now()}.${fileExt}`;
+        if (!process.env.SUPABASE_BUCKET) {
+            return res.status(500).json({ success: false, message: 'Server missing SUPABASE_BUCKET' });
+        }
+        await (0, supabase_1.ensureBucketExists)(process.env.SUPABASE_BUCKET);
         const { data, error } = await supabase_1.supabase
             .storage
             .from(process.env.SUPABASE_BUCKET)

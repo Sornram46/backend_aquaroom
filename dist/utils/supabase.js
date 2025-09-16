@@ -65,19 +65,28 @@ async function ensureBucketExists(bucketName) {
         // ตรวจสอบว่า bucket มีอยู่หรือไม่
         const { data: buckets, error: listError } = await exports.supabase.storage.listBuckets();
         if (listError) {
-            console.error('Error listing buckets:', listError);
-            return false;
+            // บางสภาพแวดล้อมอาจจำกัดสิทธิ์การ list buckets แต่ยังอัปโหลดได้
+            console.warn('Warning: listBuckets failed, proceeding optimistically:', listError);
+            return true; // อย่า block การอัปโหลดเพราะ list ผิดพลาด
         }
-        const bucketExists = buckets?.some(bucket => bucket.name === bucketName);
+        const bucket = buckets?.find((b) => b.name === bucketName);
+        const bucketExists = !!bucket;
         if (!bucketExists) {
             console.log(`Creating bucket: ${bucketName}`);
-            // สร้าง bucket ใหม่
-            const { data, error } = await exports.supabase.storage.createBucket(bucketName, {
+            // สร้าง bucket ใหม่ (public)
+            const { error } = await exports.supabase.storage.createBucket(bucketName, {
                 public: true,
                 allowedMimeTypes: ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'],
-                fileSizeLimit: 5242880 // 5MB
+                fileSizeLimit: 5242880, // 5MB
             });
             if (error) {
+                // หาก bucket ถูกสร้างไว้แล้วโดยระบบอื่น ให้ถือว่าสำเร็จ
+                const msg = error?.message?.toString().toLowerCase() || '';
+                const code = error?.code;
+                if (msg.includes('already exists') || code === '409' || code === 409) {
+                    console.warn('Bucket already exists (from createBucket): proceeding');
+                    return true;
+                }
                 console.error('Error creating bucket:', error);
                 return false;
             }
@@ -85,11 +94,23 @@ async function ensureBucketExists(bucketName) {
         }
         else {
             console.log(`Bucket already exists: ${bucketName}`);
+            // ทำให้ bucket เป็น public ถ้าจำเป็น
+            if (bucket && bucket.public === false) {
+                console.warn('Bucket is private; attempting to set public: true');
+                const { error: updateError } = await exports.supabase.storage.updateBucket(bucketName, { public: true });
+                if (updateError) {
+                    console.warn('Failed to update bucket to public. Public URLs may not work:', updateError);
+                }
+                else {
+                    console.log('Bucket visibility updated to public.');
+                }
+            }
         }
         return true;
     }
     catch (error) {
         console.error('Error ensuring bucket exists:', error);
-        return false;
+        // อย่าบล็อกการอัปโหลดด้วย hard failure ในขั้นตอนตรวจสอบ bucket
+        return true;
     }
 }
