@@ -719,6 +719,37 @@ app.get('/', (req: Request, res: Response) => {
   res.send('Welcome to AquaRoom Admin API');
 });
 
+// Lightweight diagnostics: storage readiness
+app.get('/api/_diag/storage', async (_req: Request, res: Response) => {
+  try {
+    const hasUrl = !!process.env.SUPABASE_URL;
+    const hasServiceKey = !!process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const bucket = process.env.SUPABASE_BUCKET || '';
+
+    // Avoid exposing secrets
+    let ensureResult: boolean | string = 'skipped (no bucket name)';
+    if (bucket) {
+      try {
+        ensureResult = await ensureBucketExists(bucket);
+      } catch (e: any) {
+        ensureResult = `error: ${e?.message || 'unknown'}`;
+      }
+    }
+
+    res.json({
+      success: true,
+      env: {
+        SUPABASE_URL: hasUrl,
+        SUPABASE_SERVICE_ROLE_KEY: hasServiceKey,
+        SUPABASE_BUCKET: bucket || null,
+      },
+      ensureBucket: ensureResult,
+    });
+  } catch (e: any) {
+    res.status(500).json({ success: false, error: e?.message || 'diag failed' });
+  }
+});
+
 // API สำหรับสร้างสินค้ารายการใหม่
 // แก้ไข API สำหรับสร้างสินค้าใหม่
 app.post('/api/products', (req: Request, res: Response, next) => {

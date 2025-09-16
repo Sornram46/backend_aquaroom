@@ -63,7 +63,7 @@ export async function testSupabaseConnection() {
 }
 
 // Function to create bucket if not exists
-export async function ensureBucketExists(bucketName: string) {
+export async function ensureBucketExists(bucketName: string): Promise<boolean> {
   try {
     console.log(`Checking bucket: ${bucketName}`);
     
