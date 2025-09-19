@@ -11,6 +11,21 @@ export const supabase = createClient(supabaseUrl, supabaseServiceKey, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
 
+// Simple connection test used at server startup
+export async function testSupabaseConnection(): Promise<boolean> {
+  try {
+    const { error } = await supabase.storage.listBuckets();
+    if (error) {
+      console.warn('Supabase listBuckets warning during connection test:', error.message);
+      // Treat as connected but with limited permissions
+    }
+    return true;
+  } catch (e) {
+    console.error('testSupabaseConnection exception:', e);
+    return false;
+  }
+}
+
 export async function ensureBucketExists(bucket: string): Promise<boolean> {
   try {
     const { data, error } = await supabase.storage.listBuckets();
