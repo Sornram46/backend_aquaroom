@@ -51,16 +51,19 @@ app.use(express.json());
 app.use(cookieParser());
 app.use(express.urlencoded({ extended: true }));
 
-// Static files
+// ===========================================
+// STATIC FILES (single definitions)
+// ===========================================
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
-app.use('/static', express.static(path.join(__dirname, '../public')));
+app.use('/static', express.static(path.join(__dirname, '../public'))); // legacy path (kept for backward compatibility)
 app.use('/admin', express.static(path.join(__dirname, '../public/admin')));
 
-
-app.use('/js', express.static(path.join(__dirname, '../public/admin/js'), {
+// Explicit JS route with proper headers (avoid content-type issues when proxied)
+app.use('/admin/js', express.static(path.join(__dirname, '../public/admin/js'), {
   setHeaders: (res, filePath) => {
     if (filePath.endsWith('.js')) {
-      res.setHeader('Content-Type', 'application/javascript');
+      res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+      res.setHeader('Cache-Control', 'public, max-age=300'); // short cache, can be tuned
     }
   }
 }));
@@ -124,9 +127,8 @@ app.get('/admin/login', (req: Request, res: Response) => {
   res.sendFile(path.join(__dirname, '../public/admin/login.html'));
 });
 
-// Admin panel routes - สำหรับหน้าอื่นๆ
+// Admin panel SPA catch-all (must come AFTER static definitions but BEFORE API fallbacks)
 app.get(/^\/admin(\/.*)?$/, (req: Request, res: Response) => {
-  // ส่ง index.html สำหรับหน้าทั้งหมด (ยกเว้น login)
   res.sendFile(path.join(__dirname, '../public/admin/index.html'));
 });
 
@@ -136,12 +138,15 @@ app.get(/^\/admin(\/.*)?$/, (req: Request, res: Response) => {
 
 app.use('/static', express.static(path.join(__dirname, '../public')));
 
-// Admin panel static files
-app.use('/admin', express.static(path.join(__dirname, '../public/admin')));
+// (Removed duplicate /static & /admin static registrations and duplicate catch-all route)
 
-// Admin routes - ส่ง index.html สำหรับทุก path ที่เริ่มด้วย /admin
-app.get(/^\/admin(\/.*)?$/, (req: Request, res: Response) => {
-  res.sendFile(path.join(__dirname, '../public/admin/index.html'));
+// Guard: if an asset-like request reaches here (i.e. NOT served above) return 404 instead of HTML to prevent
+// browsers interpreting index.html as JS -> "Unexpected token '<'" errors.
+app.use((req: Request, res: Response, next: NextFunction) => {
+  if (/\.(js|css|map|png|jpe?g|gif|svg|ico|webp|woff2?|ttf)$/.test(req.path)) {
+    return res.status(404).type('text/plain').send('Not found');
+  }
+  next();
 });
 
 // API Routes for Dashboard
@@ -3481,11 +3486,7 @@ app.post('/api/admin/inventory/alerts/generate', async (req: Request, res: Respo
 // API ROUTES - Protected Routes
 // ===========================================
 
-// Admin panel routes
-app.get(/^\/admin(\/.*)?$/, (req: Request, res: Response) => {
-  // ส่ง index.html สำหรับหน้าทั้งหมด (ไม่มี login แล้ว)
-  res.sendFile(path.join(__dirname, '../public/admin/index.html'));
-});
+// (Removed third duplicate /admin catch-all)
 
 
 
