@@ -7,6 +7,49 @@ if (!supabaseUrl || !supabaseServiceKey) {
   throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
 }
 
+// Sanity check: ensure the Service Role key belongs to the same project as SUPABASE_URL
+function getProjectRefFromUrl(url: string): string | null {
+  try {
+    const u = new URL(url);
+    // <ref>.supabase.co
+    const host = u.host; // e.g., ympuahmkqiwuvnrqbqqe.supabase.co
+    const ref = host.split('.')[0];
+    return ref || null;
+  } catch {
+    return null;
+  }
+}
+
+function decodeJwtPayload(token: string): any | null {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    const payload = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = payload + '==='.slice((payload.length + 3) % 4);
+    const json = Buffer.from(padded, 'base64').toString('utf-8');
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
+}
+
+const urlRef = getProjectRefFromUrl(supabaseUrl);
+const payload = decodeJwtPayload(supabaseServiceKey);
+const keyRef = payload?.ref || payload?.project_id || null;
+if (urlRef && keyRef && urlRef !== keyRef) {
+  // Fail fast with actionable error
+  throw new Error(
+    `SUPABASE_SERVICE_ROLE_KEY does not belong to project '${urlRef}'. Key is for project '${keyRef}'. ` +
+    `Please copy the Service Role key from the same project as SUPABASE_URL.`
+  );
+}
+if (urlRef) {
+  console.log(`[Supabase] Project ref from URL: ${urlRef}${keyRef ? `, key payload ref: ${keyRef}` : ''}`);
+  if (keyRef && urlRef === keyRef) {
+    console.log('[Supabase] Project ref verified: URL and Service Role key match.');
+  }
+}
+
 export const supabase = createClient(supabaseUrl, supabaseServiceKey, {
   auth: { autoRefreshToken: false, persistSession: false },
 });

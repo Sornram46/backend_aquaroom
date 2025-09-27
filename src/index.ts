@@ -51,6 +51,16 @@ app.use(express.json());
 app.use(cookieParser());
 app.use(express.urlencoded({ extended: true }));
 
+// Early Supabase connection test with actionable logs
+(async () => {
+  const ok = await testSupabaseConnection();
+  if (!ok) {
+    console.warn('[Startup] Supabase connection test failed. Please verify SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.');
+  } else {
+    console.log('[Startup] Supabase connection test completed.');
+  }
+})();
+
 // ===========================================
 // STATIC FILES (single definitions)
 // ===========================================
@@ -999,7 +1009,16 @@ app.post('/api/upload', handleFileUploadWithBusboy, (req: Request, res: Response
 
           if (error) {
             console.error('Supabase upload error:', error);
-            throw new Error(`Upload failed: ${error.message}`);
+            // Provide actionable message for common auth misconfig
+            const msg = (error as any)?.message || '';
+            const status = (error as any)?.statusCode || (error as any)?.status;
+            if (String(status) === '403' || /signature verification failed/i.test(msg)) {
+              throw new Error(
+                'Upload failed: Supabase rejected the credentials (signature verification failed). ' +
+                'Please verify SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY on the backend, and ensure you are using the Service Role key (not the anon public key).'
+              );
+            }
+            throw new Error(`Upload failed: ${msg || 'Unknown error'}`);
           }
 
           console.log('Upload successful:', data);
