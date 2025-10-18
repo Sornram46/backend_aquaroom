@@ -1,0 +1,622 @@
+CREATE TABLE IF NOT EXISTS users (
+  id                    SERIAL PRIMARY KEY,
+  name                  VARCHAR(255) NOT NULL,
+  email                 VARCHAR(255),
+  password              TEXT,
+  role                  VARCHAR(50) DEFAULT 'customer',
+  created_at            TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP,
+  auth_provider         VARCHAR(50) DEFAULT 'local',
+  auth_provider_id      VARCHAR(255),
+  avatar                TEXT,
+  is_email_verified     BOOLEAN DEFAULT FALSE,
+  is_active             BOOLEAN DEFAULT TRUE,
+  updated_at            TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP,
+  last_login            TIMESTAMP(6),
+  reset_password_token  VARCHAR(255),
+  reset_password_expires TIMESTAMP(6),
+  login_attempts        INTEGER DEFAULT 0,
+  last_failed_login     TIMESTAMP(6),
+  account_locked_until  TIMESTAMP(6),
+  UNIQUE (email),
+  CONSTRAINT unique_email_per_provider UNIQUE (email, auth_provider)
+);
+
+CREATE TABLE IF NOT EXISTS categories (
+  id                 SERIAL PRIMARY KEY,
+  name               TEXT NOT NULL UNIQUE,
+  description        TEXT,
+  image_url_cate     TEXT,
+  is_active          BOOLEAN DEFAULT TRUE,
+  created_at         TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP,
+  updated_at         TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS products (
+  id                      SERIAL PRIMARY KEY,
+  name                    VARCHAR(255) NOT NULL,
+  description             TEXT,
+  price                   NUMERIC(10,2) NOT NULL,
+  image_url               TEXT,
+  is_popular              BOOLEAN DEFAULT FALSE,
+  created_at              TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP,
+  stock                   INTEGER DEFAULT 0,
+  image_url_two           TEXT,
+  image_url_three         TEXT,
+  image_url_four          TEXT,
+  updated_at              TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP,
+  shipping_cost_bangkok   NUMERIC(10,2) DEFAULT 0,
+  shipping_cost_provinces NUMERIC(10,2) DEFAULT 0,
+  shipping_cost_remote    NUMERIC(10,2) DEFAULT 0,
+  free_shipping_threshold NUMERIC(10,2),
+  delivery_time           TEXT DEFAULT '2-3 วัน',
+  shipping_notes          TEXT,
+  special_handling        BOOLEAN DEFAULT FALSE,
+  specifications          TEXT,
+  features                TEXT,
+  shipping_info           TEXT,
+  warranty_info           TEXT,
+  return_policy           TEXT,
+  care_instructions       TEXT,
+  dimensions              VARCHAR(255),
+  weight                  VARCHAR(100),
+  material                VARCHAR(255),
+  country_origin          VARCHAR(100),
+  has_special_shipping    BOOLEAN DEFAULT FALSE,
+  special_shipping_base   NUMERIC(10,2),
+  special_shipping_qty    INTEGER,
+  special_shipping_extra  NUMERIC(10,2),
+  special_shipping_notes  TEXT
+);
+
+CREATE TABLE IF NOT EXISTS homepage_setting (
+  id                      SERIAL PRIMARY KEY,
+  logo_url                TEXT,
+  logo_alt_text           TEXT,
+  logo_width              INTEGER DEFAULT 120,
+  logo_height             INTEGER DEFAULT 40,
+  dark_logo_url           TEXT,
+  hero_title              TEXT,
+  hero_subtitle           TEXT,
+  carousel_1_title        TEXT,
+  carousel_1_subtitle     TEXT,
+  carousel_1_image        TEXT,
+  carousel_2_title        TEXT,
+  carousel_2_subtitle     TEXT,
+  carousel_2_image        TEXT,
+  carousel_3_title        TEXT,
+  carousel_3_subtitle     TEXT,
+  carousel_3_image        TEXT,
+  why_choose_title        TEXT,
+  why_choose_subtitle     TEXT,
+  quality_title           TEXT,
+  quality_subtitle        TEXT,
+  quality_feature_1       TEXT,
+  quality_feature_2       TEXT,
+  quality_feature_3       TEXT,
+  stat_1_number           TEXT,
+  stat_1_label            TEXT,
+  stat_2_number           TEXT,
+  stat_2_label            TEXT,
+  stat_3_number           TEXT,
+  stat_3_label            TEXT,
+  stat_4_number           TEXT,
+  stat_4_label            TEXT,
+  review_text             TEXT,
+  review_name             TEXT,
+  review_title            TEXT,
+  feature_1_title         TEXT,
+  feature_1_desc          TEXT,
+  feature_1_note          TEXT,
+  feature_2_title         TEXT,
+  feature_2_desc          TEXT,
+  feature_2_note          TEXT,
+  feature_3_title         TEXT,
+  feature_3_desc          TEXT,
+  feature_3_note          TEXT,
+  feature_4_title         TEXT,
+  feature_4_desc          TEXT,
+  feature_4_note          TEXT,
+  cta_title               TEXT,
+  cta_subtitle            TEXT,
+  cta_button_1_text       TEXT,
+  cta_button_1_link       TEXT,
+  cta_button_2_text       TEXT,
+  cta_button_2_link       TEXT,
+  carousel_1_button_text  TEXT,
+  carousel_1_button_url   TEXT,
+  carousel_2_button_text  TEXT,
+  carousel_2_button_url   TEXT,
+  carousel_3_button_text  TEXT,
+  carousel_3_button_url   TEXT,
+  created_at              TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP,
+  updated_at              TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS about_setting (
+  id                SERIAL PRIMARY KEY,
+  hero_title        TEXT,
+  hero_subtitle     TEXT,
+  story_title       TEXT,
+  story_content     TEXT,
+  story_image_url   TEXT,
+  mission_title     TEXT,
+  mission_subtitle  TEXT,
+  mission_1_title   TEXT,
+  mission_1_desc    TEXT,
+  mission_2_title   TEXT,
+  mission_2_desc    TEXT,
+  mission_3_title   TEXT,
+  mission_3_desc    TEXT,
+  team_title        TEXT,
+  team_subtitle     TEXT,
+  team_1_name       TEXT,
+  team_1_role       TEXT,
+  team_1_image      TEXT,
+  team_2_name       TEXT,
+  team_2_role       TEXT,
+  team_2_image      TEXT,
+  team_3_name       TEXT,
+  team_3_role       TEXT,
+  team_3_image      TEXT,
+  team_4_name       TEXT,
+  team_4_role       TEXT,
+  team_4_image      TEXT,
+  values_title      TEXT,
+  values_subtitle   TEXT,
+  value_1_title     TEXT,
+  value_1_desc      TEXT,
+  value_2_title     TEXT,
+  value_2_desc      TEXT,
+  value_3_title     TEXT,
+  value_3_desc      TEXT,
+  value_4_title     TEXT,
+  value_4_desc      TEXT,
+  created_at        TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP,
+  updated_at        TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS payment_settings (
+  id                       SERIAL PRIMARY KEY,
+  promptpay_enabled        BOOLEAN DEFAULT FALSE,
+  promptpay_id             TEXT,
+  promptpay_name           TEXT,
+  promptpay_qr_type        TEXT DEFAULT 'phone',
+  bank_transfer_enabled    BOOLEAN DEFAULT TRUE,
+  cod_enabled              BOOLEAN DEFAULT FALSE,
+  cod_fee                  NUMERIC(10,2) DEFAULT 0,
+  cod_max_amount           NUMERIC(10,2) DEFAULT 0,
+  credit_card_enabled      BOOLEAN DEFAULT FALSE,
+  auto_verify_enabled      BOOLEAN DEFAULT FALSE,
+  auto_verify_amount_limit NUMERIC(10,2) DEFAULT 10000,
+  payment_timeout_hours    INTEGER DEFAULT 24,
+  require_payment_proof    BOOLEAN DEFAULT TRUE,
+  created_at               TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP,
+  updated_at               TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS bank_accounts (
+  id                 SERIAL PRIMARY KEY,
+  payment_setting_id INTEGER NOT NULL,
+  bank_name          VARCHAR(255) NOT NULL,
+  account_name       VARCHAR(255) NOT NULL,
+  account_number     VARCHAR(50) NOT NULL,
+  branch             VARCHAR(255),
+  bank_icon          TEXT,
+  sort_order         INTEGER DEFAULT 0,
+  is_active          BOOLEAN DEFAULT TRUE,
+  created_at         TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP,
+  updated_at         TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS inventory_settings (
+  id                SERIAL PRIMARY KEY,
+  product_id        INTEGER NOT NULL UNIQUE,
+  min_stock         INTEGER DEFAULT 0,
+  max_stock         INTEGER,
+  reorder_point     INTEGER,
+  reorder_quantity  INTEGER,
+  cost_price        NUMERIC(10,2),
+  supplier_info     TEXT,
+  storage_location  TEXT,
+  shelf_life_days   INTEGER,
+  notes             TEXT,
+  is_active         BOOLEAN DEFAULT TRUE,
+  created_at        TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP,
+  updated_at        TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS stock_movements (
+  id                    SERIAL PRIMARY KEY,
+  product_id            INTEGER NOT NULL,
+  inventory_setting_id  INTEGER,
+  movement_type         VARCHAR(20) NOT NULL,
+  quantity              INTEGER NOT NULL,
+  quantity_before       INTEGER NOT NULL,
+  quantity_after        INTEGER NOT NULL,
+  unit_cost             NUMERIC(10,2),
+  total_cost            NUMERIC(10,2),
+  reason                VARCHAR(100),
+  reference_type        VARCHAR(50),
+  reference_id          INTEGER,
+  batch_number          VARCHAR(50),
+  expiry_date           TIMESTAMP(6),
+  notes                 TEXT,
+  created_by            INTEGER,
+  created_at            TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS inventory_movements (
+  id             SERIAL PRIMARY KEY,
+  product_id     INTEGER NOT NULL,
+  movement_type  TEXT NOT NULL,
+  quantity       INTEGER NOT NULL,
+  reference_type TEXT,
+  reference_id   INTEGER,
+  reason         TEXT,
+  notes          TEXT,
+  created_by     INTEGER,
+  created_at     TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS inventory_alerts (
+  id                   SERIAL PRIMARY KEY,
+  product_id           INTEGER,
+  inventory_setting_id INTEGER,
+  alert_type           VARCHAR(50) NOT NULL,
+  alert_level          VARCHAR(20) DEFAULT 'info',
+  title                VARCHAR(255) NOT NULL,
+  message              TEXT NOT NULL,
+  current_stock        INTEGER,
+  threshold_value      INTEGER,
+  is_read              BOOLEAN DEFAULT FALSE,
+  is_active            BOOLEAN DEFAULT TRUE,
+  priority             INTEGER DEFAULT 1,
+  auto_generated       BOOLEAN DEFAULT TRUE,
+  created_at           TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP,
+  updated_at           TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP,
+  read_at              TIMESTAMP(6),
+  resolved_at          TIMESTAMP(6),
+  resolved_by          INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS purchase_orders (
+  id               SERIAL PRIMARY KEY,
+  po_number        VARCHAR(50) NOT NULL UNIQUE,
+  supplier_name    VARCHAR(255) NOT NULL,
+  supplier_contact VARCHAR(255),
+  total_amount     NUMERIC(10,2) NOT NULL,
+  status           VARCHAR(20) DEFAULT 'pending',
+  order_date       TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP,
+  expected_date    TIMESTAMP(6),
+  received_date    TIMESTAMP(6),
+  notes            TEXT,
+  created_by       INTEGER,
+  created_at       TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP,
+  updated_at       TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS purchase_order_items (
+  id                 SERIAL PRIMARY KEY,
+  purchase_order_id  INTEGER NOT NULL,
+  product_id         INTEGER NOT NULL,
+  quantity_ordered   INTEGER NOT NULL,
+  quantity_received  INTEGER DEFAULT 0,
+  unit_cost          NUMERIC(10,2) NOT NULL,
+  total_cost         NUMERIC(10,2) NOT NULL,
+  batch_number       VARCHAR(50),
+  expiry_date        TIMESTAMP(6),
+  notes              TEXT
+);
+
+CREATE TABLE IF NOT EXISTS shipping_category_rules (
+  id                  SERIAL PRIMARY KEY,
+  category_id         INTEGER NOT NULL UNIQUE,
+  rule_type           VARCHAR(20) NOT NULL,
+  base_cost           NUMERIC(10,2) NOT NULL,
+  quantity_threshold  INTEGER,
+  extra_cost_per_item NUMERIC(10,2),
+  max_quantity        INTEGER,
+  description         TEXT,
+  is_active           BOOLEAN DEFAULT TRUE,
+  created_at          TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP,
+  updated_at          TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS product_categories (
+  product_id  INTEGER NOT NULL,
+  category_id INTEGER NOT NULL,
+  PRIMARY KEY (product_id, category_id)
+);
+
+CREATE TABLE IF NOT EXISTS user_addresses (
+  id            SERIAL PRIMARY KEY,
+  user_id       INTEGER NOT NULL,
+  name          VARCHAR(255) NOT NULL,
+  phone         VARCHAR(20) NOT NULL,
+  address_line1 TEXT NOT NULL,
+  address_line2 TEXT,
+  district      VARCHAR(100) NOT NULL,
+  city          VARCHAR(100) NOT NULL,
+  province      VARCHAR(100) NOT NULL,
+  postal_code   VARCHAR(10) NOT NULL,
+  is_default    BOOLEAN DEFAULT FALSE,
+  created_at    TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP,
+  updated_at    TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS coupons (
+  id                   SERIAL PRIMARY KEY,
+  code                 VARCHAR(50) NOT NULL UNIQUE,
+  name                 VARCHAR(255) NOT NULL,
+  description          TEXT,
+  discount_type        VARCHAR(20) NOT NULL,
+  discount_value       NUMERIC(10,2) NOT NULL,
+  min_order_amount     NUMERIC(10,2),
+  max_discount_amount  NUMERIC(10,2),
+  usage_limit          INTEGER,
+  usage_count          INTEGER DEFAULT 0,
+  usage_limit_per_user INTEGER,
+  start_date           TIMESTAMP(6) NOT NULL,
+  end_date             TIMESTAMP(6) NOT NULL,
+  is_active            BOOLEAN DEFAULT TRUE,
+  applicable_categories TEXT,
+  applicable_products   TEXT,
+  minimum_quantity     INTEGER,
+  created_by           VARCHAR(100),
+  created_at           TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP,
+  updated_at           TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS orders (
+  id                 SERIAL PRIMARY KEY,
+  user_id            INTEGER NOT NULL,
+  order_number       VARCHAR(20) NOT NULL UNIQUE,
+  address_id         INTEGER NOT NULL,
+  total_amount       NUMERIC(10,2) NOT NULL,
+  subtotal           NUMERIC(10,2) NOT NULL,
+  shipping_fee       NUMERIC(10,2) DEFAULT 0,
+  discount           NUMERIC(10,2) DEFAULT 0,
+  coupon_id          INTEGER,
+  coupon_code        VARCHAR(50),
+  coupon_discount    NUMERIC(10,2),
+  payment_method     VARCHAR(20) NOT NULL,
+  payment_status     VARCHAR(20) DEFAULT 'pending',
+  order_status       VARCHAR(20) DEFAULT 'processing',
+  notes              TEXT,
+  created_at         TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP,
+  updated_at         TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP,
+  tracking_number    VARCHAR(100),
+  shipping_company   VARCHAR(100),
+  estimated_delivery TIMESTAMP(6),
+  status             TEXT DEFAULT 'pending',
+  shipping_address   TEXT,
+  phone              TEXT
+);
+
+CREATE TABLE IF NOT EXISTS order_items (
+  id         SERIAL PRIMARY KEY,
+  order_id   INTEGER NOT NULL,
+  product_id INTEGER NOT NULL,
+  quantity   INTEGER NOT NULL,
+  price      NUMERIC(10,2) NOT NULL,
+  total      NUMERIC(10,2) NOT NULL,
+  created_at TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS payment_proofs (
+  id                 SERIAL PRIMARY KEY,
+  order_id           INTEGER NOT NULL,
+  file_path          TEXT NOT NULL,
+  original_filename  VARCHAR(255),
+  file_size          INTEGER,
+  uploaded_at        TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP,
+  status             VARCHAR(20) DEFAULT 'pending',
+  notes              TEXT
+);
+
+CREATE TABLE IF NOT EXISTS payments (
+  id                 SERIAL PRIMARY KEY,
+  order_id           INTEGER NOT NULL UNIQUE,
+  payment_method     TEXT NOT NULL,
+  payment_status     TEXT DEFAULT 'pending',
+  qr_code_data       TEXT,
+  qr_code_url        TEXT,
+  amount             NUMERIC(10,2) NOT NULL,
+  reference_id       TEXT UNIQUE,
+  slip_image_url     TEXT,
+  slip_upload_time   TIMESTAMP(6),
+  ocr_amount         NUMERIC(10,2),
+  ocr_date           TIMESTAMP(6),
+  ocr_time           TEXT,
+  ocr_ref_number     TEXT,
+  ocr_confidence     DOUBLE PRECISION,
+  ocr_raw_data       JSONB,
+  verified_by        INTEGER,
+  verified_at        TIMESTAMP(6),
+  verification_notes TEXT,
+  auto_verified      BOOLEAN DEFAULT FALSE,
+  auto_verify_score  DOUBLE PRECISION,
+  created_at         TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP,
+  updated_at         TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP,
+  expires_at         TIMESTAMP(6)
+);
+
+CREATE TABLE IF NOT EXISTS payment_logs (
+  id         SERIAL PRIMARY KEY,
+  payment_id INTEGER NOT NULL,
+  action     TEXT NOT NULL,
+  old_status TEXT,
+  new_status TEXT,
+  details    JSONB,
+  created_by INTEGER,
+  created_at TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS coupon_usages (
+  id             SERIAL PRIMARY KEY,
+  coupon_id      INTEGER NOT NULL,
+  user_id        INTEGER,
+  email          VARCHAR(255),
+  order_id       INTEGER,
+  discount_amount NUMERIC(10,2) NOT NULL,
+  order_amount    NUMERIC(10,2) NOT NULL,
+  used_at        TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS reviews (
+  id         SERIAL PRIMARY KEY,
+  product_id INTEGER NOT NULL,
+  user_id    INTEGER NOT NULL,
+  rating     INTEGER NOT NULL,
+  comment    TEXT,
+  created_at TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS page_views (
+  id         SERIAL PRIMARY KEY,
+  page_url   VARCHAR(500) NOT NULL,
+  user_ip    VARCHAR(45),
+  user_agent TEXT,
+  referrer   VARCHAR(500),
+  session_id VARCHAR(100),
+  user_id    INTEGER,
+  created_at TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS daily_stats (
+  id           SERIAL PRIMARY KEY,
+  date         DATE NOT NULL UNIQUE,
+  total_views  INTEGER DEFAULT 0,
+  unique_views INTEGER DEFAULT 0,
+  new_users    INTEGER DEFAULT 0,
+  orders_count INTEGER DEFAULT 0,
+  revenue      NUMERIC(10,2) DEFAULT 0,
+  created_at   TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP,
+  updated_at   TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS contact_setting (
+  id                   SERIAL PRIMARY KEY,
+  address              TEXT NOT NULL,
+  phone                TEXT NOT NULL,
+  email                TEXT NOT NULL,
+  business_hours_first TEXT,
+  business_hours_two   TEXT,
+  facebook             TEXT,
+  tiktok               TEXT,
+  line                 TEXT,
+  map_embed            TEXT,
+  updated_at           TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP,
+  created_at           TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP
+);
+
+ALTER TABLE bank_accounts
+  ADD CONSTRAINT bank_accounts_payment_setting_id_fkey FOREIGN KEY (payment_setting_id) REFERENCES payment_settings (id) ON DELETE CASCADE;
+
+ALTER TABLE inventory_settings
+  ADD CONSTRAINT inventory_settings_product_id_fkey FOREIGN KEY (product_id) REFERENCES products (id) ON DELETE CASCADE;
+
+ALTER TABLE stock_movements
+  ADD CONSTRAINT stock_movements_product_id_fkey FOREIGN KEY (product_id) REFERENCES products (id) ON DELETE CASCADE,
+  ADD CONSTRAINT stock_movements_inventory_setting_id_fkey FOREIGN KEY (inventory_setting_id) REFERENCES inventory_settings (id);
+
+ALTER TABLE inventory_movements
+  ADD CONSTRAINT inventory_movements_product_id_fkey FOREIGN KEY (product_id) REFERENCES products (id) ON DELETE CASCADE;
+
+ALTER TABLE inventory_alerts
+  ADD CONSTRAINT inventory_alerts_product_id_fkey FOREIGN KEY (product_id) REFERENCES products (id) ON DELETE CASCADE,
+  ADD CONSTRAINT inventory_alerts_inventory_setting_id_fkey FOREIGN KEY (inventory_setting_id) REFERENCES inventory_settings (id);
+
+ALTER TABLE purchase_order_items
+  ADD CONSTRAINT purchase_order_items_purchase_order_id_fkey FOREIGN KEY (purchase_order_id) REFERENCES purchase_orders (id) ON DELETE CASCADE,
+  ADD CONSTRAINT purchase_order_items_product_id_fkey FOREIGN KEY (product_id) REFERENCES products (id) ON DELETE CASCADE;
+
+ALTER TABLE shipping_category_rules
+  ADD CONSTRAINT shipping_category_rules_category_id_fkey FOREIGN KEY (category_id) REFERENCES categories (id) ON DELETE CASCADE;
+
+ALTER TABLE product_categories
+  ADD CONSTRAINT product_categories_category_id_fkey FOREIGN KEY (category_id) REFERENCES categories (id) ON DELETE CASCADE,
+  ADD CONSTRAINT product_categories_product_id_fkey FOREIGN KEY (product_id) REFERENCES products (id) ON DELETE CASCADE;
+
+ALTER TABLE user_addresses
+  ADD CONSTRAINT user_addresses_user_id_fkey FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE;
+
+ALTER TABLE orders
+  ADD CONSTRAINT orders_user_id_fkey FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE NO ACTION,
+  ADD CONSTRAINT orders_address_id_fkey FOREIGN KEY (address_id) REFERENCES user_addresses (id) ON DELETE NO ACTION,
+  ADD CONSTRAINT orders_coupon_id_fkey FOREIGN KEY (coupon_id) REFERENCES coupons (id);
+
+ALTER TABLE order_items
+  ADD CONSTRAINT order_items_order_id_fkey FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE,
+  ADD CONSTRAINT order_items_product_id_fkey FOREIGN KEY (product_id) REFERENCES products (id) ON DELETE NO ACTION;
+
+ALTER TABLE payment_proofs
+  ADD CONSTRAINT payment_proofs_order_id_fkey FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE;
+
+ALTER TABLE payments
+  ADD CONSTRAINT payments_order_id_fkey FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE,
+  ADD CONSTRAINT payments_verified_by_fkey FOREIGN KEY (verified_by) REFERENCES users (id);
+
+ALTER TABLE payment_logs
+  ADD CONSTRAINT payment_logs_payment_id_fkey FOREIGN KEY (payment_id) REFERENCES payments (id) ON DELETE CASCADE,
+  ADD CONSTRAINT payment_logs_created_by_fkey FOREIGN KEY (created_by) REFERENCES users (id);
+
+ALTER TABLE coupon_usages
+  ADD CONSTRAINT coupon_usages_coupon_id_fkey FOREIGN KEY (coupon_id) REFERENCES coupons (id) ON DELETE CASCADE,
+  ADD CONSTRAINT coupon_usages_user_id_fkey FOREIGN KEY (user_id) REFERENCES users (id),
+  ADD CONSTRAINT coupon_usages_order_id_fkey FOREIGN KEY (order_id) REFERENCES orders (id);
+
+ALTER TABLE reviews
+  ADD CONSTRAINT reviews_product_id_fkey FOREIGN KEY (product_id) REFERENCES products (id) ON DELETE CASCADE,
+  ADD CONSTRAINT reviews_user_id_fkey FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE;
+
+ALTER TABLE page_views
+  ADD CONSTRAINT page_views_user_id_fkey FOREIGN KEY (user_id) REFERENCES users (id);
+
+CREATE INDEX idx_order_items_order_id ON order_items (order_id);
+CREATE INDEX idx_orders_order_number ON orders (order_number);
+CREATE INDEX idx_orders_order_status ON orders (order_status);
+CREATE INDEX idx_orders_payment_status ON orders (payment_status);
+CREATE INDEX idx_orders_user_id ON orders (user_id);
+CREATE INDEX orders_coupon_id_idx ON orders (coupon_id);
+
+CREATE INDEX idx_payment_proofs_order_id ON payment_proofs (order_id);
+
+CREATE INDEX idx_product_categories_category_id ON product_categories (category_id);
+
+CREATE INDEX idx_user_addresses_is_default ON user_addresses (is_default);
+CREATE INDEX idx_user_addresses_user_id ON user_addresses (user_id);
+
+CREATE INDEX idx_stock_movements_product_id ON stock_movements (product_id);
+CREATE INDEX idx_stock_movements_movement_type ON stock_movements (movement_type);
+CREATE INDEX idx_stock_movements_created_at ON stock_movements (created_at);
+CREATE INDEX idx_stock_movements_reference ON stock_movements (reference_type, reference_id);
+
+CREATE INDEX idx_inventory_alerts_product_id ON inventory_alerts (product_id);
+CREATE INDEX idx_inventory_alerts_alert_type ON inventory_alerts (alert_type);
+CREATE INDEX idx_inventory_alerts_is_read ON inventory_alerts (is_read);
+CREATE INDEX idx_inventory_alerts_is_active ON inventory_alerts (is_active);
+CREATE INDEX idx_inventory_alerts_created_at ON inventory_alerts (created_at);
+
+CREATE INDEX idx_purchase_order_items_po ON purchase_order_items (purchase_order_id);
+CREATE INDEX idx_purchase_order_items_product_id ON purchase_order_items (product_id);
+
+CREATE INDEX idx_payments_verified_by ON payments (verified_by);
+
+CREATE INDEX idx_payment_logs_created_by ON payment_logs (created_by);
+
+CREATE INDEX idx_coupon_usages_coupon_id ON coupon_usages (coupon_id);
+CREATE INDEX idx_coupon_usages_user_id ON coupon_usages (user_id);
+CREATE INDEX idx_coupon_usages_email ON coupon_usages (email);
+CREATE INDEX idx_coupon_usages_used_at ON coupon_usages (used_at);
+
+CREATE INDEX idx_reviews_product_id ON reviews (product_id);
+CREATE INDEX idx_reviews_user_id ON reviews (user_id);
+
+CREATE INDEX idx_inventory_movements_product_id ON inventory_movements (product_id);
+
+CREATE INDEX idx_page_views_created_at ON page_views (created_at);
+CREATE INDEX idx_page_views_page_url ON page_views (page_url);
+CREATE INDEX idx_page_views_user_ip ON page_views (user_ip);
+
+CREATE INDEX idx_daily_stats_date ON daily_stats (date);
