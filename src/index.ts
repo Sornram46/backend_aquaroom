@@ -5600,7 +5600,7 @@ app.get('/api/categories/tree', async (req: Request, res: Response) => {
     const result = categories.map((c: any) => ({
       id: c.id,
       name: c.name,
-      slug: toSlug(c.name),
+      slug: c.slug || toSlug(c.name), // ใช้ slug จาก DB ก่อน
       image_url: c.image_url_cate || null,
       products_count: c._count?.product_categories ?? 0,
       children: [] as any[]
@@ -5613,56 +5613,6 @@ app.get('/api/categories/tree', async (req: Request, res: Response) => {
   }
 });
 
-
-
-// GET /api/categories/:slug/products - สินค้าตามหมวด
-app.get('/api/categories/:slug/products', async (req: Request, res: Response) => {
-  const raw = String(req.params.slug || '');
-  const decoded = decodeURIComponent(raw);
-  const reqSlug = toSlug(decoded);
-
-  try {
-    const cats = await prisma.categories.findMany();
-    const withSlug = cats.map((c: any) => ({ ...c, slug: toSlug(c.name) }));
-
-    let cat =
-      withSlug.find(c => c.slug === reqSlug) ||
-      withSlug.find(c => toSlug(String(c.name)) === reqSlug) ||
-      withSlug.find(c => String(c.name) === decoded);
-
-    if (!cat) {
-      console.warn('[categories/:slug/products] not found', {
-        requested: { raw, decoded, reqSlug },
-        available: withSlug.slice(0, 20).map(c => ({ id: c.id, name: c.name, slug: c.slug })),
-      });
-      return res.status(404).json({ success: false, message: 'ไม่พบหมวดหมู่' });
-    }
-
-    const products = await prisma.product.findMany({
-      where: { product_categories: { some: { category_id: cat.id } } },
-      orderBy: { id: 'desc' },
-      select: {
-        id: true,
-        name: true,
-        price: true,
-        stock: true,
-        image_url: true,
-        image_url_two: true,
-        image_url_three: true,
-        image_url_four: true,
-      },
-    });
-
-    return res.json({
-      success: true,
-      category: { id: cat.id, name: cat.name, slug: cat.slug },
-      products,
-    });
-  } catch (e) {
-    console.error('load category products error:', e);
-    return res.status(500).json({ success: false, message: 'โหลดสินค้าไม่สำเร็จ' });
-  }
-});
 
 // API สำหรับคำนวณค่าจัดส่ง
 
@@ -6250,6 +6200,64 @@ async function checkAndCreateAlert(productId: number, currentStock: number, minS
 // ===========================================
 // ORDER TRACKING API (สำหรับ Frontend)
 // ===========================================
+
+// ลบ/แทนที่บล็อคเดิมของ /api/categories/:slug/products และ /api/categories/:param/products ด้วยบล็อคนี้
+app.get('/api/categories/:param/products', async (req, res) => {
+  const raw = String(req.params.param || '');
+  const decoded = decodeURIComponent(raw);
+  const paramSlug = toSlug(decoded);
+  try {
+    let category = null;
+
+    // ถ้าเป็นตัวเลข ใช้ id
+    if (/^\d+$/.test(decoded)) {
+      category = await prisma.categories.findUnique({ where: { id: Number(decoded) } });
+    }
+
+    // ไม่ใช่ตัวเลข หรือหา id ไม่เจอ -> ลองด้วย slug/name
+    if (!category) {
+      // หาโดย slug ใน DB ก่อน (หลัง backfill)
+      category = await prisma.categories.findFirst({
+        where: { OR: [{ slug: decoded }, { slug: paramSlug }, { name: decoded }] }
+      });
+    }
+
+    if (!category) {
+      console.warn('[categories/:param/products] not found', { raw, decoded, paramSlug });
+      return res.status(404).json({ success: false, message: 'ไม่พบหมวดหมู่' });
+    }
+
+      const products = await prisma.product.findMany({
+        where: { product_categories: { some: { category_id: category.id } } },
+        orderBy: { id: 'desc' },
+        select: {
+          id: true,
+          name: true,
+          price: true,
+          stock: true,
+          image_url: true,
+          image_url_two: true,
+          image_url_three: true,
+          image_url_four: true,
+    },
+  });
+
+     return res.json({
+    success: true,
+    category: { id: category.id, name: category.name, slug: category.slug || toSlug(category.name) },
+    products: products.map(p => ({
+      ...p,
+      price: p.price != null ? Number(p.price as any) : null
+    }))
+  });
+  } catch (error) {
+    console.error('Error fetching category products:', error);
+    return res.status(500).json({ success: false, message: 'เกิดข้อผิดพลาดในการดึงข้อมูล' });
+  }
+});
+
+
+
 
 // GET /api/orders/{orderId}/items - ดึงรายการสินค้าในคำสั่งซื้อ
 app.get('/api/orders/:orderId/items', async (req: Request, res: Response) => {

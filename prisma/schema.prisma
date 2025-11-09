@@ -88,6 +88,7 @@ model shipping_category_rules {
 model categories {
   id                 Int                      @id @default(autoincrement())
   name               String                   @unique
+  slug               String?                  @unique
   description        String?
   image_url_cate     String?
   is_active          Boolean                  @default(true)
