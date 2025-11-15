@@ -646,6 +646,38 @@ app.get('/api/products/popular', async (req: Request, res: Response) => {
     console.error('Error fetching popular products:', error);
     res.status(500).json({ error: 'Failed to fetch popular products' });
   }
+  // Lightweight: ดึงค่าส่งของสินค้าแบบเป็นชุด
+  app.post('/api/products/shipping', async (req: Request, res: Response) => {
+    try {
+      const ids = Array.isArray(req.body?.ids)
+        ? (req.body.ids as any[]).map((v) => Number(v)).filter((n) => Number.isFinite(n))
+        : [];
+      if (ids.length === 0) {
+        return res.status(400).json({ success: false, error: 'invalid_ids' });
+      }
+
+      const products = await prisma.product.findMany({
+        where: { id: { in: ids } as any },
+        select: {
+          id: true,
+          name: true,
+          has_special_shipping: true,
+          special_shipping_base: true,
+          special_shipping_qty: true,
+          special_shipping_extra: true,
+          shipping_cost_provinces: true,
+          shipping_cost_bangkok: true,
+          shipping_cost_remote: true,
+        },
+      });
+
+      return res.json({ success: true, products });
+    } catch (e) {
+      console.error('products/shipping error:', e);
+      return res.status(500).json({ success: false, error: 'server_error' });
+    }
+  });
+
 });
 
 // สร้าง API สำหรับดึงข้อมูลคำสั่งซื้อล่าสุด
@@ -5621,111 +5653,152 @@ app.get('/api/categories/tree', async (req: Request, res: Response) => {
 app.post('/api/calculate-shipping', async (req: Request, res: Response) => {
   try {
     const { items, subtotal } = req.body;
-
     if (!items || !Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'ไม่มีรายการสินค้า' 
-      });
+      return res.status(400).json({ success: false, error: 'ไม่มีรายการสินค้า' });
     }
 
-    let totalShippingCost = 0;
+    // รวม id ซ้ำกันก่อน (กัน frontend ส่งแตกบรรทัดเดียวกัน)
+    const merged = items.reduce((acc: any[], it: any) => {
+      const found = acc.find(a => a.id === it.id);
+      if (found) found.quantity += Number(it.quantity || 0);
+      else acc.push({ id: it.id, quantity: Number(it.quantity || 0) });
+      return acc;
+    }, []);
+
     const details: any[] = [];
+    let totalShippingCost = 0;
 
-    for (const item of items) {
+    const specialProducts: { product: any; quantity: number }[] = [];
+    const normalProducts: { product: any; quantity: number }[] = [];
+
+    // โหลดสินค้าทีละตัวและจัดกลุ่ม
+    for (const row of merged) {
       const product = await prisma.product.findUnique({
-        where: { id: item.id },
-        include: { 
-          product_categories: { 
-            include: { 
-              categories: { 
-                include: { 
-                  shipping_rule: true 
-                } 
-              } 
-            } 
-          } 
+        where: { id: row.id },
+        include: {
+          product_categories: { include: { categories: { include: { shipping_rule: true } } } }
         }
       });
-
-      if (!product) continue;
-
-      // เช็คว่ามีการตั้งค่าค่าจัดส่งพิเศษในตัวสินค้าหรือไม่
-      if (product.has_special_shipping && product.special_shipping_base) {
-        const baseShipping = Number(product.special_shipping_base);
-        const qtyThreshold = product.special_shipping_qty || 0;
-        const extraPerItem = Number(product.special_shipping_extra || 0);
-        
-        let itemShipping = baseShipping;
-        if (item.quantity > qtyThreshold) {
-          const extraQty = item.quantity - qtyThreshold;
-          itemShipping += extraQty * extraPerItem;
-        }
-
-        totalShippingCost += itemShipping;
-        details.push({
-          product: product.name,
-          quantity: item.quantity,
-          shipping: itemShipping,
-          type: 'special_product'
-        });
-        
+      if (!product) {
+        details.push({ type: 'missing', id: row.id });
         continue;
       }
 
-      // เช็คกฎจากหมวดหมู่
-      const category = product.product_categories[0]?.categories;
-      if (category?.shipping_rule?.is_active) {
-        const rule = category.shipping_rule;
-        let itemShipping = Number(rule.base_cost);
-        
-        if (rule.quantity_threshold && rule.extra_cost_per_item) {
-          if (item.quantity > rule.quantity_threshold) {
-            const extraQty = item.quantity - rule.quantity_threshold;
-            itemShipping += extraQty * Number(rule.extra_cost_per_item);
-          }
-        }
-
-        totalShippingCost += itemShipping;
-        details.push({
-          product: product.name,
-          quantity: item.quantity,
-          shipping: itemShipping,
-          type: 'category_rule'
-        });
-        
-        continue;
+      if (product.has_special_shipping && product.special_shipping_base != null) {
+        specialProducts.push({ product, quantity: row.quantity });
+      } else {
+        normalProducts.push({ product, quantity: row.quantity });
       }
+    }
 
-      // ค่าจัดส่งทั่วไป
-      const defaultShipping = 50;
-      totalShippingCost += defaultShipping;
+    // กำหนด config ค่าจัดส่งพิเศษ (ใช้ค่าคงที่ตามโจทย์ หรือจากสินค้าแรกถ้าต้อง)
+    let specialConfig = {
+      base: 80,                // base ครั้งเดียว
+      threshold: 4,             // รวมถึง 4 ชิ้นไม่คิดเพิ่ม
+      extra: 10                 // เกินคิดเพิ่มต่อชิ้น
+    };
+    // ถ้ามี product ตั้งค่าเฉพาะตัว และอยาก override ด้วยค่าแรก
+    if (specialProducts.length > 0) {
+      const first = specialProducts.find(p => p.product.special_shipping_base != null);
+      if (first) {
+        specialConfig = {
+          base: Number(first.product.special_shipping_base) || specialConfig.base,
+          threshold: Number(first.product.special_shipping_qty || specialConfig.threshold),
+          extra: Number(first.product.special_shipping_extra || specialConfig.extra)
+        };
+      }
+    }
+
+    // คิดค่าจัดส่งพิเศษแบบรวมครั้งเดียว
+    if (specialProducts.length > 0) {
+      const totalQty = specialProducts.reduce((sum, p) => sum + p.quantity, 0);
+      let cost = specialConfig.base;
+      if (totalQty > specialConfig.threshold) {
+        cost += (totalQty - specialConfig.threshold) * specialConfig.extra;
+      }
+      totalShippingCost += cost;
       details.push({
-        product: product.name,
-        quantity: item.quantity,
-        shipping: defaultShipping,
-        type: 'default'
+        type: 'special_group',
+        products: specialProducts.map(p => ({ id: p.product.id, name: p.product.name, qty: p.quantity })),
+        total_qty: totalQty,
+        config: specialConfig,
+        shipping: cost,
+        formula: totalQty <= specialConfig.threshold
+          ? `cost = ${specialConfig.base}`
+          : `cost = ${specialConfig.base} + (${totalQty - specialConfig.threshold} * ${specialConfig.extra})`
       });
     }
 
-    console.log('🚚 Shipping calculation:', { totalShippingCost, details });
+    // คิดสินค้าปกติ (รองรับค่าส่งระดับสินค้า -> กฎหมวดหมู่ -> default)
+    const toNum = (v: any): number | null => {
+      if (v === null || v === undefined) return null;
+      try {
+        // Prisma Decimal อาจต้องแปลงเป็น string ก่อน
+        const s = typeof v === 'object' && typeof (v as any).toString === 'function' ? (v as any).toString() : v;
+        const n = Number(s);
+        return Number.isFinite(n) ? n : null;
+      } catch { return null; }
+    };
+    for (const { product, quantity } of normalProducts) {
+      // 1) ค่าส่งระดับสินค้า (ถ้ากำหนดไว้ ใช้ก่อน)
+      const provinces = toNum(product.shipping_cost_provinces);
+      const bangkok = toNum(product.shipping_cost_bangkok);
+      const remote = toNum(product.shipping_cost_remote);
+      const perProductCost = (provinces ?? bangkok ?? remote);
+
+      if (perProductCost != null && perProductCost > 0) {
+        const cost = perProductCost; // ต่อหนึ่งรายการสินค้า (สอดคล้อง default behavior เดิม)
+        totalShippingCost += cost;
+        details.push({
+          type: 'product_shipping',
+          product: { id: product.id, name: product.name },
+          quantity,
+          shipping: cost,
+          raw: { provinces, bangkok, remote }
+        });
+        continue;
+      }
+
+      // 2) กฎจากหมวดหมู่ (ถ้ามีและเปิดใช้งาน)
+      const rule = product.product_categories[0]?.categories?.shipping_rule;
+      if (rule?.is_active) {
+        let cost = Number(rule.base_cost);
+        if (rule.quantity_threshold && rule.extra_cost_per_item && quantity > rule.quantity_threshold) {
+          cost += (quantity - rule.quantity_threshold) * Number(rule.extra_cost_per_item);
+        }
+        totalShippingCost += cost;
+        details.push({
+          type: 'category_rule',
+          product: { id: product.id, name: product.name },
+          quantity,
+          shipping: cost
+        });
+      } else {
+        // 3) ค่าจัดส่งทั่วไป
+        const cost = 50;
+        totalShippingCost += cost;
+        details.push({
+          type: 'default',
+          product: { id: product.id, name: product.name },
+          quantity,
+          shipping: cost
+        });
+      }
+    }
 
     return res.json({
       success: true,
-      shippingCost: totalShippingCost,  // ✅ เพิ่ม key นี้ให้ตรงกับ frontend
+      version: 'server-shipping-v2',
+      shippingCost: totalShippingCost,
       data: {
         totalShippingCost,
         details,
         freeShippingApplied: subtotal >= 1000 && totalShippingCost === 0
       }
     });
-
   } catch (error) {
     console.error('❌ Calculate shipping error:', error);
-    return res.status(500).json({ 
-      success: false, 
-      error: 'ไม่สามารถคำนวณค่าจัดส่งได้' 
-    });
+    return res.status(500).json({ success: false, error: 'ไม่สามารถคำนวณค่าจัดส่งได้' });
   }
 });
 
