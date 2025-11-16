@@ -4202,134 +4202,90 @@ app.put('/api/admin/coupons/:id/status', async (req: Request, res: Response) => 
 // POST /api/coupons/validate - ตรวจสอบและใช้คูปอง
 app.post('/api/coupons/validate', async (req: Request, res: Response) => {
   try {
-    const { code, order_amount, user_id, email } = req.body;
+    const { code, subtotal = 0, user_id = null, email = null } = req.body || {};
+    const couponCode = String(code || '').trim().toUpperCase();
 
-    console.log('🎫 Validating coupon:', code, 'for amount:', order_amount);
-
-    if (!code) {
-      return res.status(400).json({
-        success: false,
-        message: 'กรุณาใส่รหัสคูปอง'
-      });
+    if (!couponCode) {
+      return res.status(400).json({ success: false, code: 'MISSING_CODE', message: 'กรุณาระบุรหัสคูปอง' });
     }
 
-    if (!order_amount || order_amount <= 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'ยอดสั่งซื้อไม่ถูกต้อง'
-      });
-    }
-
-    // Find coupon
-    const coupon = await prisma.coupon.findUnique({
-      where: { code: code.toUpperCase() }
+    const now = new Date();
+    // ใช้ตาราง coupon (เดี่ยว) ให้ตรงกับสคีมาในโปรเจกต์
+    const coupon = await (prisma as any).coupon.findFirst({
+      where: {
+        code: couponCode,
+        is_active: true,
+        start_date: { lte: now },
+        end_date: { gte: now },
+      },
     });
 
     if (!coupon) {
-      return res.status(404).json({
-        success: false,
-        message: 'ไม่พบรหัสคูปองที่ระบุ'
-      });
+      return res.status(404).json({ success: false, code: 'NOT_FOUND', message: 'ไม่พบคูปองหรือคูปองหมดอายุแล้ว' });
     }
 
-    // Check if coupon is active
-    if (!coupon.is_active) {
+    // ตรวจขั้นต่ำยอดสั่งซื้อ
+    const minSubtotal = Number(coupon.min_order_amount ?? 0);
+    if (minSubtotal > 0 && Number(subtotal) < minSubtotal) {
       return res.status(400).json({
         success: false,
-        message: 'คูปองนี้ถูกปิดใช้งานแล้ว'
+        code: 'MIN_SUBTOTAL',
+        message: `ยอดสั่งซื้อขั้นต่ำ ${minSubtotal.toLocaleString('th-TH')} บาท`,
+        min_subtotal: minSubtotal,
       });
     }
 
-    // Check date range
-    const now = new Date();
-    if (coupon.start_date > now) {
-      return res.status(400).json({
-        success: false,
-        message: 'คูปองนี้ยังไม่เริ่มใช้งาน'
-      });
+    // จำกัดจำนวนใช้ทั้งหมด
+    const maxUses = Number(coupon.usage_limit ?? 0) || null;
+    const usedCount = Number(coupon.usage_count ?? 0) || 0;
+    if (maxUses != null && usedCount >= maxUses) {
+      return res.status(400).json({ success: false, code: 'MAX_USES', message: 'คูปองนี้ถูกใช้งานครบจำนวนแล้ว' });
     }
 
-    if (coupon.end_date < now) {
-      return res.status(400).json({
-        success: false,
-        message: 'คูปองนี้หมดอายุแล้ว'
-      });
-    }
-
-    // Check usage limit
-    if (coupon.usage_limit && coupon.usage_count >= coupon.usage_limit) {
-      return res.status(400).json({
-        success: false,
-        message: 'คูปองนี้ถูกใช้งานครบจำนวนแล้ว'
-      });
-    }
-
-    // Check minimum order amount
-    if (coupon.min_order_amount && order_amount < coupon.min_order_amount) {
-      return res.status(400).json({
-        success: false,
-        message: `ยอดสั่งซื้อขั้นต่ำ ${Number(coupon.min_order_amount).toLocaleString('th-TH')} บาท`
-      });
-    }
-
-    // Check usage per user
+    // จำกัดต่อผู้ใช้ (ถ้ามี)
     if (coupon.usage_limit_per_user && (user_id || email)) {
-      const userUsageCount = await prisma.couponUsage.count({
+      const perUserUsed = await prisma.couponUsage.count({
         where: {
           coupon_id: coupon.id,
           OR: [
-            ...(user_id ? [{ user_id: user_id }] : []),
-            ...(email ? [{ email: email }] : [])
-          ]
-        }
+            ...(user_id ? [{ user_id }] : []),
+            ...(email ? [{ email }] : []),
+          ],
+        },
       });
-
-      if (userUsageCount >= coupon.usage_limit_per_user) {
-        return res.status(400).json({
-          success: false,
-          message: 'คุณใช้คูปองนี้ครบจำนวนแล้ว'
-        });
+      if (perUserUsed >= Number(coupon.usage_limit_per_user)) {
+        return res.status(400).json({ success: false, code: 'USER_LIMIT', message: 'คุณใช้คูปองนี้ครบจำนวนแล้ว' });
       }
     }
 
-    // Calculate discount
-    let discountAmount = 0;
-    if (coupon.discount_type === 'percentage') {
-      discountAmount = (order_amount * Number(coupon.discount_value)) / 100;
-      if (coupon.max_discount_amount && discountAmount > Number(coupon.max_discount_amount)) {
-        discountAmount = Number(coupon.max_discount_amount);
-      }
+    // คำนวณส่วนลด
+    const type = String(coupon.discount_type || '').toLowerCase(); // 'percentage' | 'amount'
+    const value = Number(coupon.discount_value ?? 0);
+    let discount = 0;
+    if (type === 'percentage') {
+      discount = Math.max(0, Math.floor(Number(subtotal) * value / 100));
+      const cap = coupon.max_discount_amount != null ? Number(coupon.max_discount_amount) : null;
+      if (cap != null && discount > cap) discount = cap;
     } else {
-      discountAmount = Number(coupon.discount_value);
+      discount = Math.max(0, value);
     }
+    if (discount > Number(subtotal)) discount = Number(subtotal);
 
-    // Make sure discount doesn't exceed order amount
-    if (discountAmount > order_amount) {
-      discountAmount = order_amount;
-    }
-
-    console.log('✅ Coupon validation successful, discount:', discountAmount);
-
-    res.json({
+    return res.json({
       success: true,
       data: {
         coupon_id: coupon.id,
         code: coupon.code,
-        name: coupon.name,
-        discount_type: coupon.discount_type,
-        discount_value: coupon.discount_value,
-        discount_amount: discountAmount,
-        final_amount: order_amount - discountAmount
+        type,
+        value,
+        discount_amount: discount,
+        min_subtotal: minSubtotal || 0,
       },
-      message: `ใช้คูปอง ${coupon.code} ประหยัด ${discountAmount.toLocaleString('th-TH')} บาท`
+      message: `ใช้คูปอง ${coupon.code} สำเร็จ ส่วนลด ${discount.toLocaleString('th-TH')} บาท`,
     });
-
-  } catch (error) {
-    console.error('❌ Error validating coupon:', error);
-    res.status(500).json({
-      success: false,
-      message: 'เกิดข้อผิดพลาดในการตรวจสอบคูปอง: ' + (error instanceof Error ? error.message : 'Unknown error')
-    });
+  } catch (e: any) {
+    console.error('Validate coupon error:', e);
+    return res.status(500).json({ success: false, code: 'SERVER_ERROR', message: 'เกิดข้อผิดพลาดในระบบ' });
   }
 });
 
