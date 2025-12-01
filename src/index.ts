@@ -606,13 +606,30 @@ app.get('/api/user/stats', auth, async (req: Request, res: Response) => {
 app.get('/api/products', async (req: Request, res: Response) => {
   try {
     const products = await prisma.product.findMany({
-      orderBy: {
-        id: 'desc'
-      },
-      take: 10 // เอาแค่ 10 รายการล่าสุด
+      where: { deleted_at: null },
+      orderBy: { id: 'desc' },
+      take: 10,
+      include: {
+        product_categories: {
+          include: {
+            categories: true
+          }
+        }
+      }
     });
-    
-    res.json(products);
+
+    // map ให้มี category_name (หรือ category object)
+    const mapped = products.map(p => ({
+      id: p.id,
+      name: p.name,
+      price: Number(p.price),
+      image_url: p.image_url,
+      stock: p.stock,
+      // ดึงชื่อหมวดหมู่แรก ถ้ามี
+      category: p.product_categories[0]?.categories?.name ?? 'ทั่วไป'
+    }));
+
+    res.json(mapped);
   } catch (error) {
     console.error('Error fetching products:', error);
     res.status(500).json({ error: 'Failed to fetch products' });
@@ -624,7 +641,7 @@ app.get('/api/products/popular', async (req: Request, res: Response) => {
   try {
     const limit = parseInt((req.query.limit as string) || '8');
     const products = await prisma.product.findMany({
-      where: { is_popular: true },
+      where: { is_popular: true, deleted_at: null },
       orderBy: { id: 'desc' },
       take: isNaN(limit) ? 8 : limit,
     });
@@ -740,15 +757,10 @@ app.get('/api/categories', async (req: Request, res: Response) => {
   try {
     const categories = await prisma.categories.findMany({
       orderBy: { id: 'desc' },
-      include: { _count: { select: { product_categories: true } } }
+      select: { id: true, name: true }
     });
-    const categoriesWithCount = categories.map(category => ({
-      ...category,
-      products_count: category._count.product_categories
-    }));
-    res.json(categoriesWithCount);
+    res.json(categories);
   } catch (error) {
-    console.error('Error fetching categories:', error);
     res.status(500).json({ error: 'Failed to fetch categories' });
   }
 });
@@ -1268,22 +1280,20 @@ app.delete('/api/products/:id', (req: Request, res: Response, next) => {
       return res.status(400).json({ success: false, message: 'รหัสสินค้าไม่ถูกต้อง' });
     }
 
-    // ลบความสัมพันธ์กับหมวดหมู่ก่อน (ถ้ามี)
-    await prisma.product_categories.deleteMany({
-      where: { product_id: productId }
+    // Soft delete: อัปเดต deleted_at แทนการลบจริง
+    await prisma.product.update({
+      where: { id: productId },
+      data: { deleted_at: new Date() }
     });
 
-    // ลบสินค้า
-    await prisma.product.delete({
-      where: { id: productId }
-    });
-
-    res.json({ success: true });
+    res.json({ success: true, message: 'ลบสินค้า (soft delete) เรียบร้อยแล้ว' });
   })().catch(error => {
     console.error('Error deleting product:', error);
     res.status(500).json({ success: false, message: 'เกิดข้อผิดพลาดในการลบสินค้า' });
   });
 });
+
+
 
 // GET homepage setting
 app.get('/api/homepage-setting', async (req: Request, res: Response) => {
@@ -6245,7 +6255,7 @@ app.get('/api/categories/:param/products', async (req, res) => {
     }
 
       const products = await prisma.product.findMany({
-        where: { product_categories: { some: { category_id: category.id } } },
+        where: { product_categories: { some: { category_id: category.id } } , deleted_at: null},
         orderBy: { id: 'desc' },
         select: {
           id: true,
