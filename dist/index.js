@@ -542,17 +542,69 @@ app.get('/api/user/stats', auth_middleware_1.auth, async (req, res) => {
 // API สำหรับดึงสินค้าทั้งหมด
 app.get('/api/products', async (req, res) => {
     try {
+        const idParam = req.query.id;
+        if (idParam !== undefined) {
+            const id = Number(idParam);
+            if (!Number.isFinite(id))
+                return res.status(400).json({ error: 'Invalid product id' });
+            const p = await exports.prisma.product.findUnique({
+                where: { id },
+                include: { product_categories: { include: { categories: true } } },
+            });
+            if (!p || p.deleted_at)
+                return res.status(404).json({ error: 'Product not found' });
+            return res.json({
+                id: p.id,
+                name: p.name,
+                price: Number(p.price),
+                image_url: p.image_url,
+                stock: p.stock,
+                category: p.product_categories[0]?.categories?.name ?? 'ทั่วไป',
+            });
+        }
         const products = await exports.prisma.product.findMany({
-            orderBy: {
-                id: 'desc'
-            },
-            take: 10 // เอาแค่ 10 รายการล่าสุด
+            where: { deleted_at: null },
+            orderBy: { id: 'desc' },
+            take: 10,
+            include: { product_categories: { include: { categories: true } } },
         });
-        res.json(products);
+        return res.json(products.map(p => ({
+            id: p.id,
+            name: p.name,
+            price: Number(p.price),
+            image_url: p.image_url,
+            stock: p.stock,
+            category: p.product_categories[0]?.categories?.name ?? 'ทั่วไป',
+        })));
     }
     catch (error) {
         console.error('Error fetching products:', error);
-        res.status(500).json({ error: 'Failed to fetch products' });
+        return res.status(500).json({ error: 'Failed to fetch products' });
+    }
+});
+app.get('/api/products/:id(\\d+)', async (req, res) => {
+    try {
+        const id = Number(req.params.id);
+        if (!Number.isFinite(id))
+            return res.status(400).json({ error: 'Invalid product id' });
+        const p = await exports.prisma.product.findUnique({
+            where: { id },
+            include: { product_categories: { include: { categories: true } } },
+        });
+        if (!p || p.deleted_at)
+            return res.status(404).json({ error: 'Product not found' });
+        return res.json({
+            id: p.id,
+            name: p.name,
+            price: Number(p.price),
+            image_url: p.image_url,
+            stock: p.stock,
+            category: p.product_categories[0]?.categories?.name ?? 'ทั่วไป',
+        });
+    }
+    catch (error) {
+        console.error('Error fetching product by id:', error);
+        return res.status(500).json({ error: 'Failed to fetch product' });
     }
 });
 // API สำหรับดึงสินค้ายอดนิยม
@@ -560,11 +612,10 @@ app.get('/api/products/popular', async (req, res) => {
     try {
         const limit = parseInt(req.query.limit || '8');
         const products = await exports.prisma.product.findMany({
-            where: { is_popular: true },
+            where: { is_popular: true, deleted_at: null },
             orderBy: { id: 'desc' },
             take: isNaN(limit) ? 8 : limit,
         });
-        // แปลงค่าที่เป็น Decimal ให้เป็น Number สำหรับฟิลด์ที่ใช้บ่อย
         const normalized = products.map((p) => ({
             ...p,
             price: p?.price != null ? Number(p.price) : p.price,
@@ -575,13 +626,43 @@ app.get('/api/products/popular', async (req, res) => {
             special_shipping_extra: p?.special_shipping_extra != null ? Number(p.special_shipping_extra) : p.special_shipping_extra,
             free_shipping_threshold: p?.free_shipping_threshold != null ? Number(p.free_shipping_threshold) : p.free_shipping_threshold,
         }));
-        res.json(normalized);
+        return res.json(normalized);
     }
     catch (error) {
         console.error('Error fetching popular products:', error);
-        res.status(500).json({ error: 'Failed to fetch popular products' });
+        return res.status(500).json({ error: 'Failed to fetch popular products' });
     }
 });
+app.post('/api/products/shipping', async (req, res) => {
+    try {
+        const ids = Array.isArray(req.body?.ids)
+            ? req.body.ids.map((v) => Number(v)).filter((n) => Number.isFinite(n))
+            : [];
+        if (ids.length === 0) {
+            return res.status(400).json({ success: false, error: 'missing_ids' });
+        }
+        const products = await exports.prisma.product.findMany({
+            where: { id: { in: ids } },
+            select: {
+                id: true,
+                name: true,
+                has_special_shipping: true,
+                special_shipping_base: true,
+                special_shipping_qty: true,
+                special_shipping_extra: true,
+                shipping_cost_provinces: true,
+                shipping_cost_bangkok: true,
+                shipping_cost_remote: true,
+            },
+        });
+        return res.json({ success: true, products });
+    }
+    catch (e) {
+        console.error('products/shipping error:', e);
+        return res.status(500).json({ success: false, error: 'server_error' });
+    }
+});
+// ...existing code...
 // สร้าง API สำหรับดึงข้อมูลคำสั่งซื้อล่าสุด
 app.get('/api/orders/recent', async (req, res) => {
     try {
@@ -637,57 +718,46 @@ app.get('/api/categories', async (req, res) => {
     try {
         const categories = await exports.prisma.categories.findMany({
             orderBy: { id: 'desc' },
-            include: { _count: { select: { product_categories: true } } }
+            select: { id: true, name: true }
         });
-        const categoriesWithCount = categories.map(category => ({
-            ...category,
-            products_count: category._count.product_categories
-        }));
-        res.json(categoriesWithCount);
+        res.json(categories);
     }
     catch (error) {
-        console.error('Error fetching categories:', error);
         res.status(500).json({ error: 'Failed to fetch categories' });
     }
 });
 // API สำหรับสร้างหมวดหมู่ใหม่
+// CREATE CATEGORY (เพิ่ม slug)
+// CREATE CATEGORY (เพิ่ม slug + debug log)
 app.post('/api/categories', (req, res, next) => {
     (async () => {
         try {
-            const { name, image_url_cate, is_active } = req.body; // เปลี่ยนจาก image_url
-            // ตรวจสอบข้อมูลที่จำเป็น
-            if (!name) {
-                return res.status(400).json({
-                    success: false,
-                    error: 'ชื่อหมวดหมู่เป็นข้อมูลที่จำเป็น'
-                });
-            }
-            // ตรวจสอบว่าชื่อหมวดหมู่ซ้ำหรือไม่
-            const existingCategory = await exports.prisma.categories.findFirst({
-                where: { name }
-            });
-            if (existingCategory) {
-                return res.status(400).json({
-                    success: false,
-                    error: 'ชื่อหมวดหมู่นี้มีอยู่แล้ว'
-                });
-            }
-            // สร้างหมวดหมู่ใหม่
+            const { name, image_url_cate, is_active, slug } = req.body;
+            if (!name)
+                return res.status(400).json({ success: false, message: 'ต้องระบุ name' });
+            const existingByName = await exports.prisma.categories.findFirst({ where: { name } });
+            if (existingByName)
+                return res.status(409).json({ success: false, message: 'ชื่อหมวดหมู่ซ้ำ' });
+            let finalSlug = slug && String(slug).trim() ? toSlug(slug) : await generateUniqueSlug(name);
+            if (!finalSlug)
+                finalSlug = await generateUniqueSlug(`cat-${Date.now()}`);
+            const dup = await exports.prisma.categories.findFirst({ where: { slug: finalSlug } });
+            if (dup)
+                finalSlug = await generateUniqueSlug(name);
+            console.log('[categories:create] name=', name, 'finalSlug=', finalSlug);
             const category = await exports.prisma.categories.create({
                 data: {
                     name,
-                    image_url_cate: image_url_cate || null, // เปลี่ยนจาก image_url
-                    is_active: is_active !== undefined ? is_active : true
+                    slug: finalSlug,
+                    image_url_cate: image_url_cate || null,
+                    is_active: is_active !== undefined ? !!is_active : true
                 }
             });
             res.json({ success: true, category });
         }
         catch (error) {
             console.error('Error creating category:', error);
-            res.status(500).json({
-                success: false,
-                error: 'Failed to create category'
-            });
+            res.status(500).json({ success: false, error: 'Failed to create category' });
         }
     })().catch(next);
 });
@@ -728,48 +798,48 @@ app.put('/api/categories/:id(\\d+)', (req, res, next) => {
     (async () => {
         try {
             const categoryId = parseInt(req.params.id);
-            const { name, image_url_cate, is_active } = req.body; // เปลี่ยนจาก image_url
+            const { name, image_url_cate, is_active, slug, regenerateSlug } = req.body;
             if (isNaN(categoryId)) {
-                return res.status(400).json({
-                    success: false,
-                    error: 'Invalid category ID'
-                });
+                return res.status(400).json({ success: false, message: 'ID ไม่ถูกต้อง' });
             }
-            // ตรวจสอบว่าหมวดหมู่มีอยู่หรือไม่
-            const existingCategory = await exports.prisma.categories.findUnique({
-                where: { id: categoryId }
-            });
-            if (!existingCategory) {
-                return res.status(404).json({
-                    success: false,
-                    error: 'Category not found'
-                });
+            const existing = await exports.prisma.categories.findUnique({ where: { id: categoryId } });
+            if (!existing) {
+                return res.status(404).json({ success: false, message: 'ไม่พบหมวดหมู่' });
             }
-            // ตรวจสอบชื่อซ้ำ (ยกเว้นรายการปัจจุบัน)
-            if (name) {
-                const duplicateName = await exports.prisma.categories.findFirst({
-                    where: {
-                        name,
-                        id: { not: categoryId }
-                    }
-                });
-                if (duplicateName) {
-                    return res.status(400).json({
-                        success: false,
-                        error: 'ชื่อหมวดหมู่นี้มีอยู่แล้ว'
-                    });
+            // ตรวจสอบชื่อซ้ำ (ยกเว้นตัวเอง)
+            if (name && name !== existing.name) {
+                const dupName = await exports.prisma.categories.findFirst({ where: { name } });
+                if (dupName) {
+                    return res.status(409).json({ success: false, message: 'ชื่อหมวดหมู่ซ้ำ' });
                 }
             }
-            // อัปเดตหมวดหมู่
-            const category = await exports.prisma.categories.update({
+            let finalSlug = existing.slug;
+            // ถ้าผู้ใช้ส่ง slug ใหม่ หรือขอ regenerateSlug หรือชื่อเปลี่ยนแต่ไม่มี slug ส่งมา
+            if (slug && slug !== existing.slug) {
+                const candidate = toSlug(slug);
+                const dupSlug = await exports.prisma.categories.findFirst({ where: { slug: candidate } });
+                finalSlug = dupSlug ? await generateUniqueSlug(slug) : candidate;
+            }
+            else if (regenerateSlug) {
+                finalSlug = await generateUniqueSlug(name || existing.name);
+            }
+            else if (name && name !== existing.name && !slug) {
+                // เปลี่ยนชื่อแต่ไม่ส่ง slug → sync slug ตามชื่อใหม่ (ไม่ชน)
+                const candidate = toSlug(name);
+                const dupSlug = await exports.prisma.categories.findFirst({ where: { slug: candidate } });
+                finalSlug = dupSlug ? await generateUniqueSlug(name) : candidate;
+            }
+            const updated = await exports.prisma.categories.update({
                 where: { id: categoryId },
                 data: {
-                    name,
-                    image_url_cate: image_url_cate || null, // เปลี่ยนจาก image_url
-                    is_active: is_active !== undefined ? is_active : true
+                    name: name ?? existing.name,
+                    slug: finalSlug,
+                    image_url_cate: image_url_cate !== undefined ? image_url_cate || null : existing.image_url_cate,
+                    is_active: is_active !== undefined ? !!is_active : existing.is_active,
+                    updated_at: new Date()
                 }
             });
-            res.json({ success: true, category });
+            res.json({ success: true, category: updated });
         }
         catch (error) {
             console.error('Error updating category:', error);
@@ -1094,15 +1164,12 @@ app.delete('/api/products/:id', (req, res, next) => {
         if (isNaN(productId)) {
             return res.status(400).json({ success: false, message: 'รหัสสินค้าไม่ถูกต้อง' });
         }
-        // ลบความสัมพันธ์กับหมวดหมู่ก่อน (ถ้ามี)
-        await exports.prisma.product_categories.deleteMany({
-            where: { product_id: productId }
+        // Soft delete: อัปเดต deleted_at แทนการลบจริง
+        await exports.prisma.product.update({
+            where: { id: productId },
+            data: { deleted_at: new Date() }
         });
-        // ลบสินค้า
-        await exports.prisma.product.delete({
-            where: { id: productId }
-        });
-        res.json({ success: true });
+        res.json({ success: true, message: 'ลบสินค้า (soft delete) เรียบร้อยแล้ว' });
     })().catch(error => {
         console.error('Error deleting product:', error);
         res.status(500).json({ success: false, message: 'เกิดข้อผิดพลาดในการลบสินค้า' });
@@ -3684,119 +3751,86 @@ app.put('/api/admin/coupons/:id/status', async (req, res) => {
 // POST /api/coupons/validate - ตรวจสอบและใช้คูปอง
 app.post('/api/coupons/validate', async (req, res) => {
     try {
-        const { code, order_amount, user_id, email } = req.body;
-        console.log('🎫 Validating coupon:', code, 'for amount:', order_amount);
-        if (!code) {
-            return res.status(400).json({
-                success: false,
-                message: 'กรุณาใส่รหัสคูปอง'
-            });
+        const { code, subtotal = 0, user_id = null, email = null } = req.body || {};
+        const couponCode = String(code || '').trim().toUpperCase();
+        if (!couponCode) {
+            return res.status(400).json({ success: false, code: 'MISSING_CODE', message: 'กรุณาระบุรหัสคูปอง' });
         }
-        if (!order_amount || order_amount <= 0) {
-            return res.status(400).json({
-                success: false,
-                message: 'ยอดสั่งซื้อไม่ถูกต้อง'
-            });
-        }
-        // Find coupon
-        const coupon = await exports.prisma.coupon.findUnique({
-            where: { code: code.toUpperCase() }
+        const now = new Date();
+        // ใช้ตาราง coupon (เดี่ยว) ให้ตรงกับสคีมาในโปรเจกต์
+        const coupon = await exports.prisma.coupon.findFirst({
+            where: {
+                code: couponCode,
+                is_active: true,
+                start_date: { lte: now },
+                end_date: { gte: now },
+            },
         });
         if (!coupon) {
-            return res.status(404).json({
-                success: false,
-                message: 'ไม่พบรหัสคูปองที่ระบุ'
-            });
+            return res.status(404).json({ success: false, code: 'NOT_FOUND', message: 'ไม่พบคูปองหรือคูปองหมดอายุแล้ว' });
         }
-        // Check if coupon is active
-        if (!coupon.is_active) {
+        // ตรวจขั้นต่ำยอดสั่งซื้อ
+        const minSubtotal = Number(coupon.min_order_amount ?? 0);
+        if (minSubtotal > 0 && Number(subtotal) < minSubtotal) {
             return res.status(400).json({
                 success: false,
-                message: 'คูปองนี้ถูกปิดใช้งานแล้ว'
+                code: 'MIN_SUBTOTAL',
+                message: `ยอดสั่งซื้อขั้นต่ำ ${minSubtotal.toLocaleString('th-TH')} บาท`,
+                min_subtotal: minSubtotal,
             });
         }
-        // Check date range
-        const now = new Date();
-        if (coupon.start_date > now) {
-            return res.status(400).json({
-                success: false,
-                message: 'คูปองนี้ยังไม่เริ่มใช้งาน'
-            });
+        // จำกัดจำนวนใช้ทั้งหมด
+        const maxUses = Number(coupon.usage_limit ?? 0) || null;
+        const usedCount = Number(coupon.usage_count ?? 0) || 0;
+        if (maxUses != null && usedCount >= maxUses) {
+            return res.status(400).json({ success: false, code: 'MAX_USES', message: 'คูปองนี้ถูกใช้งานครบจำนวนแล้ว' });
         }
-        if (coupon.end_date < now) {
-            return res.status(400).json({
-                success: false,
-                message: 'คูปองนี้หมดอายุแล้ว'
-            });
-        }
-        // Check usage limit
-        if (coupon.usage_limit && coupon.usage_count >= coupon.usage_limit) {
-            return res.status(400).json({
-                success: false,
-                message: 'คูปองนี้ถูกใช้งานครบจำนวนแล้ว'
-            });
-        }
-        // Check minimum order amount
-        if (coupon.min_order_amount && order_amount < coupon.min_order_amount) {
-            return res.status(400).json({
-                success: false,
-                message: `ยอดสั่งซื้อขั้นต่ำ ${Number(coupon.min_order_amount).toLocaleString('th-TH')} บาท`
-            });
-        }
-        // Check usage per user
+        // จำกัดต่อผู้ใช้ (ถ้ามี)
         if (coupon.usage_limit_per_user && (user_id || email)) {
-            const userUsageCount = await exports.prisma.couponUsage.count({
+            const perUserUsed = await exports.prisma.couponUsage.count({
                 where: {
                     coupon_id: coupon.id,
                     OR: [
-                        ...(user_id ? [{ user_id: user_id }] : []),
-                        ...(email ? [{ email: email }] : [])
-                    ]
-                }
+                        ...(user_id ? [{ user_id }] : []),
+                        ...(email ? [{ email }] : []),
+                    ],
+                },
             });
-            if (userUsageCount >= coupon.usage_limit_per_user) {
-                return res.status(400).json({
-                    success: false,
-                    message: 'คุณใช้คูปองนี้ครบจำนวนแล้ว'
-                });
+            if (perUserUsed >= Number(coupon.usage_limit_per_user)) {
+                return res.status(400).json({ success: false, code: 'USER_LIMIT', message: 'คุณใช้คูปองนี้ครบจำนวนแล้ว' });
             }
         }
-        // Calculate discount
-        let discountAmount = 0;
-        if (coupon.discount_type === 'percentage') {
-            discountAmount = (order_amount * Number(coupon.discount_value)) / 100;
-            if (coupon.max_discount_amount && discountAmount > Number(coupon.max_discount_amount)) {
-                discountAmount = Number(coupon.max_discount_amount);
-            }
+        // คำนวณส่วนลด
+        const type = String(coupon.discount_type || '').toLowerCase(); // 'percentage' | 'amount'
+        const value = Number(coupon.discount_value ?? 0);
+        let discount = 0;
+        if (type === 'percentage') {
+            discount = Math.max(0, Math.floor(Number(subtotal) * value / 100));
+            const cap = coupon.max_discount_amount != null ? Number(coupon.max_discount_amount) : null;
+            if (cap != null && discount > cap)
+                discount = cap;
         }
         else {
-            discountAmount = Number(coupon.discount_value);
+            discount = Math.max(0, value);
         }
-        // Make sure discount doesn't exceed order amount
-        if (discountAmount > order_amount) {
-            discountAmount = order_amount;
-        }
-        console.log('✅ Coupon validation successful, discount:', discountAmount);
-        res.json({
+        if (discount > Number(subtotal))
+            discount = Number(subtotal);
+        return res.json({
             success: true,
             data: {
                 coupon_id: coupon.id,
                 code: coupon.code,
-                name: coupon.name,
-                discount_type: coupon.discount_type,
-                discount_value: coupon.discount_value,
-                discount_amount: discountAmount,
-                final_amount: order_amount - discountAmount
+                type,
+                value,
+                discount_amount: discount,
+                min_subtotal: minSubtotal || 0,
             },
-            message: `ใช้คูปอง ${coupon.code} ประหยัด ${discountAmount.toLocaleString('th-TH')} บาท`
+            message: `ใช้คูปอง ${coupon.code} สำเร็จ ส่วนลด ${discount.toLocaleString('th-TH')} บาท`,
         });
     }
-    catch (error) {
-        console.error('❌ Error validating coupon:', error);
-        res.status(500).json({
-            success: false,
-            message: 'เกิดข้อผิดพลาดในการตรวจสอบคูปอง: ' + (error instanceof Error ? error.message : 'Unknown error')
-        });
+    catch (e) {
+        console.error('Validate coupon error:', e);
+        return res.status(500).json({ success: false, code: 'SERVER_ERROR', message: 'เกิดข้อผิดพลาดในระบบ' });
     }
 });
 // POST /api/coupons/use - บันทึกการใช้คูปอง
@@ -4904,6 +4938,19 @@ function toSlug(name) {
         .replace(/\s+/g, '-')
         .replace(/-+/g, '-');
 }
+function generateUniqueSlug(baseName) {
+    const base = toSlug(baseName) || `cat`;
+    return (async () => {
+        let candidate = base;
+        let i = 1;
+        while (true) {
+            const exists = await exports.prisma.categories.findFirst({ where: { slug: candidate } });
+            if (!exists)
+                return candidate;
+            candidate = `${base}-${i++}`;
+        }
+    })();
+}
 // GET /api/categories/tree - สำหรับ Mega menu
 app.get('/api/categories/tree', async (req, res) => {
     try {
@@ -4915,7 +4962,7 @@ app.get('/api/categories/tree', async (req, res) => {
         const result = categories.map((c) => ({
             id: c.id,
             name: c.name,
-            slug: toSlug(c.name),
+            slug: c.slug || toSlug(c.name), // ใช้ slug จาก DB ก่อน
             image_url: c.image_url_cate || null,
             products_count: c._count?.product_categories ?? 0,
             children: []
@@ -4927,163 +4974,154 @@ app.get('/api/categories/tree', async (req, res) => {
         return res.status(500).json({ success: false, message: 'โหลดหมวดหมู่ไม่สำเร็จ' });
     }
 });
-// GET /api/categories/:slug/products - สินค้าตามหมวด
-app.get('/api/categories/:slug/products', async (req, res) => {
-    const raw = String(req.params.slug || '');
-    const decoded = decodeURIComponent(raw);
-    const reqSlug = toSlug(decoded);
-    try {
-        const cats = await exports.prisma.categories.findMany();
-        const withSlug = cats.map((c) => ({ ...c, slug: toSlug(c.name) }));
-        let cat = withSlug.find(c => c.slug === reqSlug) ||
-            withSlug.find(c => toSlug(String(c.name)) === reqSlug) ||
-            withSlug.find(c => String(c.name) === decoded);
-        if (!cat) {
-            console.warn('[categories/:slug/products] not found', {
-                requested: { raw, decoded, reqSlug },
-                available: withSlug.slice(0, 20).map(c => ({ id: c.id, name: c.name, slug: c.slug })),
-            });
-            return res.status(404).json({ success: false, message: 'ไม่พบหมวดหมู่' });
-        }
-        const products = await exports.prisma.product.findMany({
-            where: { product_categories: { some: { category_id: cat.id } } },
-            orderBy: { id: 'desc' },
-            select: {
-                id: true,
-                name: true,
-                price: true,
-                stock: true,
-                image_url: true,
-                image_url_two: true,
-                image_url_three: true,
-                image_url_four: true,
-            },
-        });
-        return res.json({
-            success: true,
-            category: { id: cat.id, name: cat.name, slug: cat.slug },
-            products,
-        });
-    }
-    catch (e) {
-        console.error('load category products error:', e);
-        return res.status(500).json({ success: false, message: 'โหลดสินค้าไม่สำเร็จ' });
-    }
-});
 // API สำหรับคำนวณค่าจัดส่ง
 app.post('/api/calculate-shipping', async (req, res) => {
     try {
-        const { items, destination = 'bangkok' } = req.body;
+        const { items, subtotal } = req.body;
+        if (!items || !Array.isArray(items) || items.length === 0) {
+            return res.status(400).json({ success: false, error: 'ไม่มีรายการสินค้า' });
+        }
+        // รวม id ซ้ำกันก่อน (กัน frontend ส่งแตกบรรทัดเดียวกัน)
+        const merged = items.reduce((acc, it) => {
+            const found = acc.find(a => a.id === it.id);
+            if (found)
+                found.quantity += Number(it.quantity || 0);
+            else
+                acc.push({ id: it.id, quantity: Number(it.quantity || 0) });
+            return acc;
+        }, []);
+        const details = [];
         let totalShippingCost = 0;
-        const shippingDetails = [];
-        for (const rawItem of items || []) {
-            // รองรับได้ทั้ง productId / product_id / id
-            const pid = Number(rawItem.productId ?? rawItem.product_id ?? rawItem.id);
-            const qty = Number(rawItem.quantity ?? 1);
-            if (!Number.isFinite(pid) || pid <= 0 || !Number.isFinite(qty) || qty <= 0)
-                continue;
+        const specialProducts = [];
+        const normalProducts = [];
+        // โหลดสินค้าทีละตัวและจัดกลุ่ม
+        for (const row of merged) {
             const product = await exports.prisma.product.findUnique({
-                where: { id: pid },
+                where: { id: row.id },
                 include: {
-                    product_categories: {
-                        include: { categories: true }
-                    }
+                    product_categories: { include: { categories: { include: { shipping_rule: true } } } }
                 }
             });
-            if (!product)
+            if (!product) {
+                details.push({ type: 'missing', id: row.id });
                 continue;
-            let itemShippingCost = 0;
-            let calculation = '';
-            if (product.has_special_shipping) {
-                const baseCost = Number(product.special_shipping_base) || 80;
-                const threshold = product.special_shipping_qty || 4;
-                const extraCost = Number(product.special_shipping_extra) || 10;
-                if (qty <= threshold) {
-                    itemShippingCost = baseCost;
-                    calculation = `${qty} ตัว = ${baseCost} บาท (ค่าพื้นฐาน)`;
+            }
+            if (product.has_special_shipping && product.special_shipping_base != null) {
+                specialProducts.push({ product, quantity: row.quantity });
+            }
+            else {
+                normalProducts.push({ product, quantity: row.quantity });
+            }
+        }
+        // กำหนด config ค่าจัดส่งพิเศษ (ใช้ค่าคงที่ตามโจทย์ หรือจากสินค้าแรกถ้าต้อง)
+        let specialConfig = {
+            base: 80, // base ครั้งเดียว
+            threshold: 4, // รวมถึง 4 ชิ้นไม่คิดเพิ่ม
+            extra: 10 // เกินคิดเพิ่มต่อชิ้น
+        };
+        // ถ้ามี product ตั้งค่าเฉพาะตัว และอยาก override ด้วยค่าแรก
+        if (specialProducts.length > 0) {
+            const first = specialProducts.find(p => p.product.special_shipping_base != null);
+            if (first) {
+                specialConfig = {
+                    base: Number(first.product.special_shipping_base) || specialConfig.base,
+                    threshold: Number(first.product.special_shipping_qty || specialConfig.threshold),
+                    extra: Number(first.product.special_shipping_extra || specialConfig.extra)
+                };
+            }
+        }
+        // คิดค่าจัดส่งพิเศษแบบรวมครั้งเดียว
+        if (specialProducts.length > 0) {
+            const totalQty = specialProducts.reduce((sum, p) => sum + p.quantity, 0);
+            let cost = specialConfig.base;
+            if (totalQty > specialConfig.threshold) {
+                cost += (totalQty - specialConfig.threshold) * specialConfig.extra;
+            }
+            totalShippingCost += cost;
+            details.push({
+                type: 'special_group',
+                products: specialProducts.map(p => ({ id: p.product.id, name: p.product.name, qty: p.quantity })),
+                total_qty: totalQty,
+                config: specialConfig,
+                shipping: cost,
+                formula: totalQty <= specialConfig.threshold
+                    ? `cost = ${specialConfig.base}`
+                    : `cost = ${specialConfig.base} + (${totalQty - specialConfig.threshold} * ${specialConfig.extra})`
+            });
+        }
+        // คิดสินค้าปกติ (รองรับค่าส่งระดับสินค้า -> กฎหมวดหมู่ -> default)
+        const toNum = (v) => {
+            if (v === null || v === undefined)
+                return null;
+            try {
+                // Prisma Decimal อาจต้องแปลงเป็น string ก่อน
+                const s = typeof v === 'object' && typeof v.toString === 'function' ? v.toString() : v;
+                const n = Number(s);
+                return Number.isFinite(n) ? n : null;
+            }
+            catch {
+                return null;
+            }
+        };
+        for (const { product, quantity } of normalProducts) {
+            // 1) ค่าส่งระดับสินค้า (ถ้ากำหนดไว้ ใช้ก่อน)
+            const provinces = toNum(product.shipping_cost_provinces);
+            const bangkok = toNum(product.shipping_cost_bangkok);
+            const remote = toNum(product.shipping_cost_remote);
+            const perProductCost = (provinces ?? bangkok ?? remote);
+            if (perProductCost != null && perProductCost > 0) {
+                const cost = perProductCost; // ต่อหนึ่งรายการสินค้า (สอดคล้อง default behavior เดิม)
+                totalShippingCost += cost;
+                details.push({
+                    type: 'product_shipping',
+                    product: { id: product.id, name: product.name },
+                    quantity,
+                    shipping: cost,
+                    raw: { provinces, bangkok, remote }
+                });
+                continue;
+            }
+            // 2) กฎจากหมวดหมู่ (ถ้ามีและเปิดใช้งาน)
+            const rule = product.product_categories[0]?.categories?.shipping_rule;
+            if (rule?.is_active) {
+                let cost = Number(rule.base_cost);
+                if (rule.quantity_threshold && rule.extra_cost_per_item && quantity > rule.quantity_threshold) {
+                    cost += (quantity - rule.quantity_threshold) * Number(rule.extra_cost_per_item);
                 }
-                else {
-                    const extraItems = qty - threshold;
-                    itemShippingCost = baseCost + (extraItems * extraCost);
-                    calculation = `${qty} ตัว = ${baseCost} + (${extraItems}×${extraCost}) = ${itemShippingCost} บาท`;
-                }
-                shippingDetails.push({
-                    productName: product.name,
-                    quantity: qty,
-                    shippingType: 'special',
-                    cost: itemShippingCost,
-                    calculation
+                totalShippingCost += cost;
+                details.push({
+                    type: 'category_rule',
+                    product: { id: product.id, name: product.name },
+                    quantity,
+                    shipping: cost
                 });
             }
             else {
-                // การจัดส่งปกติ — ต้องคูณด้วยจำนวนชิ้น
-                let unitCost = 0;
-                switch (String(destination).toLowerCase()) {
-                    case 'bangkok':
-                    case 'กรุงเทพฯ':
-                        unitCost = Number(product.shipping_cost_bangkok) || 0;
-                        break;
-                    case 'provinces':
-                    case 'ต่างจังหวัด':
-                        unitCost = Number(product.shipping_cost_provinces) || 50;
-                        break;
-                    case 'remote':
-                    case 'เกาะ':
-                        unitCost = Number(product.shipping_cost_remote) || 100;
-                        break;
-                    default:
-                        unitCost = Number(product.shipping_cost_provinces) || 50;
-                }
-                itemShippingCost = unitCost * qty; // แก้: คูณจำนวน
-                calculation = `${qty} ชิ้น × ${unitCost} บาท = ${itemShippingCost} บาท`;
-                shippingDetails.push({
-                    productName: product.name,
-                    quantity: qty,
-                    shippingType: 'normal',
-                    cost: itemShippingCost,
-                    calculation
+                // 3) ค่าจัดส่งทั่วไป
+                const cost = 50;
+                totalShippingCost += cost;
+                details.push({
+                    type: 'default',
+                    product: { id: product.id, name: product.name },
+                    quantity,
+                    shipping: cost
                 });
             }
-            totalShippingCost += itemShippingCost;
         }
-        // ตรวจสอบจัดส่งฟรี
-        const orderTotal = (items || []).reduce((sum, it) => {
-            const price = Number(it.price ?? 0);
-            const q = Number(it.quantity ?? 1);
-            return sum + (Number.isFinite(price) ? price : 0) * (Number.isFinite(q) ? q : 0);
-        }, 0);
-        let freeShippingApplied = false;
-        for (const it of items || []) {
-            const pid = Number(it.productId ?? it.product_id ?? it.id);
-            if (!Number.isFinite(pid) || pid <= 0)
-                continue;
-            const product = await exports.prisma.product.findUnique({ where: { id: pid } });
-            if (product?.free_shipping_threshold && orderTotal >= Number(product.free_shipping_threshold)) {
-                freeShippingApplied = true;
-                break;
-            }
-        }
-        if (freeShippingApplied)
-            totalShippingCost = 0;
-        res.json({
+        return res.json({
             success: true,
+            version: 'server-shipping-v2',
+            shippingCost: totalShippingCost,
             data: {
                 totalShippingCost,
-                orderTotal,
-                freeShippingApplied,
-                destination,
-                details: shippingDetails,
-                summary: {
-                    message: freeShippingApplied
-                        ? 'จัดส่งฟรี เนื่องจากยอดสั่งซื้อเกินเงื่อนไข'
-                        : `ค่าจัดส่งรวม ${totalShippingCost} บาท`
-                }
+                details,
+                freeShippingApplied: subtotal >= 1000 && totalShippingCost === 0
             }
         });
     }
     catch (error) {
-        console.error('Error calculating shipping:', error);
-        res.status(500).json({ success: false, error: 'ไม่สามารถคำนวณค่าจัดส่งได้' });
+        console.error('❌ Calculate shipping error:', error);
+        return res.status(500).json({ success: false, error: 'ไม่สามารถคำนวณค่าจัดส่งได้' });
     }
 });
 app.get('/api/orders', async (req, res) => {
@@ -5482,6 +5520,56 @@ async function checkAndCreateAlert(productId, currentStock, minStock) {
 // ===========================================
 // ORDER TRACKING API (สำหรับ Frontend)
 // ===========================================
+// ลบ/แทนที่บล็อคเดิมของ /api/categories/:slug/products และ /api/categories/:param/products ด้วยบล็อคนี้
+app.get('/api/categories/:param/products', async (req, res) => {
+    const raw = String(req.params.param || '');
+    const decoded = decodeURIComponent(raw);
+    const paramSlug = toSlug(decoded);
+    try {
+        let category = null;
+        // ถ้าเป็นตัวเลข ใช้ id
+        if (/^\d+$/.test(decoded)) {
+            category = await exports.prisma.categories.findUnique({ where: { id: Number(decoded) } });
+        }
+        // ไม่ใช่ตัวเลข หรือหา id ไม่เจอ -> ลองด้วย slug/name
+        if (!category) {
+            // หาโดย slug ใน DB ก่อน (หลัง backfill)
+            category = await exports.prisma.categories.findFirst({
+                where: { OR: [{ slug: decoded }, { slug: paramSlug }, { name: decoded }] }
+            });
+        }
+        if (!category) {
+            console.warn('[categories/:param/products] not found', { raw, decoded, paramSlug });
+            return res.status(404).json({ success: false, message: 'ไม่พบหมวดหมู่' });
+        }
+        const products = await exports.prisma.product.findMany({
+            where: { product_categories: { some: { category_id: category.id } }, deleted_at: null },
+            orderBy: { id: 'desc' },
+            select: {
+                id: true,
+                name: true,
+                price: true,
+                stock: true,
+                image_url: true,
+                image_url_two: true,
+                image_url_three: true,
+                image_url_four: true,
+            },
+        });
+        return res.json({
+            success: true,
+            category: { id: category.id, name: category.name, slug: category.slug || toSlug(category.name) },
+            products: products.map(p => ({
+                ...p,
+                price: p.price != null ? Number(p.price) : null
+            }))
+        });
+    }
+    catch (error) {
+        console.error('Error fetching category products:', error);
+        return res.status(500).json({ success: false, message: 'เกิดข้อผิดพลาดในการดึงข้อมูล' });
+    }
+});
 // GET /api/orders/{orderId}/items - ดึงรายการสินค้าในคำสั่งซื้อ
 app.get('/api/orders/:orderId/items', async (req, res) => {
     try {

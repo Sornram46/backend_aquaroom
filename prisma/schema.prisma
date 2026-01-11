@@ -22,7 +22,7 @@ model Product {
   image_url_three String?
   image_url_four  String?
   updated_at      DateTime  @default(now())
-  deleted_at      DateTime? @default(null)
+  deleted_at      DateTime? 
 
   // การตั้งค่าค่าจัดส่งพิเศษ
   shipping_cost_bangkok   Decimal? @default(0) @db.Decimal(10, 2)
