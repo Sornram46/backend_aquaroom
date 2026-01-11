@@ -605,37 +605,74 @@ app.get('/api/user/stats', auth, async (req: Request, res: Response) => {
 // API สำหรับดึงสินค้าทั้งหมด
 app.get('/api/products', async (req: Request, res: Response) => {
   try {
+    const idParam = req.query.id;
+    if (idParam !== undefined) {
+      const id = Number(idParam);
+      if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid product id' });
+
+      const p = await prisma.product.findUnique({
+        where: { id },
+        include: { product_categories: { include: { categories: true } } },
+      });
+      if (!p || p.deleted_at) return res.status(404).json({ error: 'Product not found' });
+
+      return res.json({
+        id: p.id,
+        name: p.name,
+        price: Number(p.price),
+        image_url: p.image_url,
+        stock: p.stock,
+        category: p.product_categories[0]?.categories?.name ?? 'ทั่วไป',
+      });
+    }
+
     const products = await prisma.product.findMany({
       where: { deleted_at: null },
       orderBy: { id: 'desc' },
       take: 10,
-      include: {
-        product_categories: {
-          include: {
-            categories: true
-          }
-        }
-      }
+      include: { product_categories: { include: { categories: true } } },
     });
 
-    // map ให้มี category_name (หรือ category object)
-    const mapped = products.map(p => ({
+    return res.json(products.map(p => ({
       id: p.id,
       name: p.name,
       price: Number(p.price),
       image_url: p.image_url,
       stock: p.stock,
-      // ดึงชื่อหมวดหมู่แรก ถ้ามี
-      category: p.product_categories[0]?.categories?.name ?? 'ทั่วไป'
-    }));
-
-    res.json(mapped);
+      category: p.product_categories[0]?.categories?.name ?? 'ทั่วไป',
+    })));
   } catch (error) {
     console.error('Error fetching products:', error);
-    res.status(500).json({ error: 'Failed to fetch products' });
+    return res.status(500).json({ error: 'Failed to fetch products' });
   }
 });
 
+
+
+app.get('/api/products/:id(\\d+)', async (req: Request, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid product id' });
+
+    const p = await prisma.product.findUnique({
+      where: { id },
+      include: { product_categories: { include: { categories: true } } },
+    });
+    if (!p || p.deleted_at) return res.status(404).json({ error: 'Product not found' });
+
+    return res.json({
+      id: p.id,
+      name: p.name,
+      price: Number(p.price),
+      image_url: p.image_url,
+      stock: p.stock,
+      category: p.product_categories[0]?.categories?.name ?? 'ทั่วไป',
+    });
+  } catch (error) {
+    console.error('Error fetching product by id:', error);
+    return res.status(500).json({ error: 'Failed to fetch product' });
+  }
+});
 // API สำหรับดึงสินค้ายอดนิยม
 app.get('/api/products/popular', async (req: Request, res: Response) => {
   try {
@@ -646,7 +683,6 @@ app.get('/api/products/popular', async (req: Request, res: Response) => {
       take: isNaN(limit) ? 8 : limit,
     });
 
-    // แปลงค่าที่เป็น Decimal ให้เป็น Number สำหรับฟิลด์ที่ใช้บ่อย
     const normalized = products.map((p: any) => ({
       ...p,
       price: p?.price != null ? Number(p.price) : p.price,
@@ -658,44 +694,45 @@ app.get('/api/products/popular', async (req: Request, res: Response) => {
       free_shipping_threshold: p?.free_shipping_threshold != null ? Number(p.free_shipping_threshold) : p.free_shipping_threshold,
     }));
 
-    res.json(normalized);
+    return res.json(normalized);
   } catch (error) {
     console.error('Error fetching popular products:', error);
-    res.status(500).json({ error: 'Failed to fetch popular products' });
+    return res.status(500).json({ error: 'Failed to fetch popular products' });
   }
-  // Lightweight: ดึงค่าส่งของสินค้าแบบเป็นชุด
-  app.post('/api/products/shipping', async (req: Request, res: Response) => {
-    try {
-      const ids = Array.isArray(req.body?.ids)
-        ? (req.body.ids as any[]).map((v) => Number(v)).filter((n) => Number.isFinite(n))
-        : [];
-      if (ids.length === 0) {
-        return res.status(400).json({ success: false, error: 'invalid_ids' });
-      }
-
-      const products = await prisma.product.findMany({
-        where: { id: { in: ids } as any },
-        select: {
-          id: true,
-          name: true,
-          has_special_shipping: true,
-          special_shipping_base: true,
-          special_shipping_qty: true,
-          special_shipping_extra: true,
-          shipping_cost_provinces: true,
-          shipping_cost_bangkok: true,
-          shipping_cost_remote: true,
-        },
-      });
-
-      return res.json({ success: true, products });
-    } catch (e) {
-      console.error('products/shipping error:', e);
-      return res.status(500).json({ success: false, error: 'server_error' });
-    }
-  });
-
 });
+
+ app.post('/api/products/shipping', async (req: Request, res: Response) => {
+  try {
+    const ids = Array.isArray(req.body?.ids)
+      ? (req.body.ids as any[]).map((v) => Number(v)).filter((n) => Number.isFinite(n))
+      : [];
+    if (ids.length === 0) {
+      return res.status(400).json({ success: false, error: 'missing_ids' });
+    }
+
+    const products = await prisma.product.findMany({
+      where: { id: { in: ids } as any },
+      select: {
+        id: true,
+        name: true,
+        has_special_shipping: true,
+        special_shipping_base: true,
+        special_shipping_qty: true,
+        special_shipping_extra: true,
+        shipping_cost_provinces: true,
+        shipping_cost_bangkok: true,
+        shipping_cost_remote: true,
+      },
+    });
+
+    return res.json({ success: true, products });
+  } catch (e) {
+    console.error('products/shipping error:', e);
+    return res.status(500).json({ success: false, error: 'server_error' });
+  }
+});
+
+// ...existing code...
 
 // สร้าง API สำหรับดึงข้อมูลคำสั่งซื้อล่าสุด
 app.get('/api/orders/recent', async (req: Request, res: Response) => {
@@ -1565,6 +1602,8 @@ app.get('/api/admin/orders/:id', async (req: Request, res: Response) => {
     });
   }
 });
+
+
 
 // API สำหรับดึงข้อมูลสินค้าเพื่อแก้ไข (สำหรับ Admin)
 app.get('/api/products/:id/edit', (req: Request, res: Response, next) => {
