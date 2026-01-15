@@ -794,10 +794,26 @@ app.get('/api/categories', async (req: Request, res: Response) => {
   try {
     const categories = await prisma.categories.findMany({
       orderBy: { id: 'desc' },
-      select: { id: true, name: true }
+      select: {
+        id: true,
+        name: true,
+        image_url_cate: true,
+        is_active: true,
+        _count: { select: { product_categories: true } }
+      }
     });
-    res.json(categories);
+
+    const formatted = categories.map((c) => ({
+      id: c.id,
+      name: c.name,
+      image_url_cate: c.image_url_cate,
+      is_active: c.is_active,
+      products_count: c._count?.product_categories ?? 0
+    }));
+
+    res.json(formatted);
   } catch (error) {
+    console.error('Error fetching categories:', error);
     res.status(500).json({ error: 'Failed to fetch categories' });
   }
 });
@@ -5639,8 +5655,8 @@ app.get('/api/categories/tree', async (req: Request, res: Response) => {
     const result = categories.map((c: any) => ({
       id: c.id,
       name: c.name,
-      slug: c.slug || toSlug(c.name), // ใช้ slug จาก DB ก่อน
-      image_url: c.image_url_cate || null,
+      slug: c.slug || toSlug(c.name),
+      image_url: c.image_url || c.image_url_cate || null, // ใช้ image_url เป็นหลัก
       products_count: c._count?.product_categories ?? 0,
       children: [] as any[]
     }));
@@ -5651,7 +5667,6 @@ app.get('/api/categories/tree', async (req: Request, res: Response) => {
     return res.status(500).json({ success: false, message: 'โหลดหมวดหมู่ไม่สำเร็จ' });
   }
 });
-
 
 // API สำหรับคำนวณค่าจัดส่ง
 

@@ -2013,8 +2013,13 @@ async function showCategories() {
   if (!mainContent) return;
 
   try {
-    // โหลดข้อมูลหมวดหมู่
-    const categories = await fetchAPI('/categories') || [];
+    // โหลดข้อมูลหมวดหมู่แล้วทำ normalization ให้รองรับทั้ง image_url_cate และ image_url
+    const rawCategories = await fetchAPI('/categories') || [];
+    const categories = rawCategories.map((c) => ({
+      ...c,
+      image_url_cate: c.image_url_cate ?? c.image_url ?? '',
+      is_active: c.is_active ?? true
+    }));
 
     mainContent.innerHTML = `
       <div class="mb-6 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
@@ -2174,9 +2179,10 @@ function showCategoryModal(categoryData = null) {
     document.getElementById('category-name').value = categoryData.name;
     document.getElementById('category-active').checked = categoryData.is_active;
     
-    if (categoryData.image_url_cate) { // เปลี่ยนจาก image_url
+    const previewUrl = categoryData.image_url_cate ?? categoryData.image_url;
+    if (previewUrl) { // รองรับทั้ง image_url_cate และ image_url
       document.getElementById('category-image-preview').innerHTML = 
-        `<img src="${categoryData.image_url_cate}" alt="Preview" class="w-32 h-32 object-cover rounded border">`;
+        `<img src="${previewUrl}" alt="Preview" class="w-32 h-32 object-cover rounded border">`;
     }
   } else {
     // Add mode
