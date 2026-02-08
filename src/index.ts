@@ -8,7 +8,7 @@ import cookieParser from 'cookie-parser';
 import { PrismaClient } from '@prisma/client';
 import path from 'path';
 import Busboy from 'busboy';
-import fs from 'fs';
+import fs, { lutimes } from 'fs';
 import session from 'express-session';
 import { OAuth2Client } from 'google-auth-library';
 import { supabase, testSupabaseConnection, ensureBucketExists } from './utils/supabase';
@@ -601,10 +601,35 @@ app.get('/api/user/stats', auth, async (req: Request, res: Response) => {
     return res.status(500).json({ success: false, message: 'ไม่สามารถดึงสถิติผู้ใช้ได้' });
   }
 });
+app.get('/api/_diag/db', async (_req: Request, res: Response) => {
+  try {
+    const [total, visible] = await Promise.all([
+      prisma.product.count(),
+      prisma.product.count({ where: { deleted_at: null } }),
+    ]);
 
+    let host: string | null = null;
+    let name: string | null = null;
+    try {
+      const u = new URL(process.env.DATABASE_URL || '');
+      host = u.host;
+      name = u.pathname?.replace('/', '') || null;
+    } catch {}
+
+    return res.json({ ok: true, products: { total, visible }, database_url: { host, name } });
+  } catch (e: any) {
+    return res.status(500).json({ ok: false, error: e?.message || 'diag failed' });
+  }
+});
 // API สำหรับดึงสินค้าทั้งหมด
 app.get('/api/products', async (req: Request, res: Response) => {
   try {
+
+     res.setHeader('X-API-REV', 'products-limit-1000');
+    res.setHeader('Cache-Control', 'no-store');
+
+    const limitRaw = req.query.limit;
+    const offsetRaw = req.query.offset;
     const idParam = req.query.id;
     if (idParam !== undefined) {
       const id = Number(idParam);
@@ -624,12 +649,18 @@ app.get('/api/products', async (req: Request, res: Response) => {
         stock: p.stock,
         category: p.product_categories[0]?.categories?.name ?? 'ทั่วไป',
       });
-    }
+    } 
+ const limit = limitRaw != null ? Number(limitRaw) : 1000; // default 1000
+    const offset = offsetRaw != null ? Number(offsetRaw) : 0;
+    
+    const safeLimit = Number.isFinite(limit) ? Math.min(Math.max(limit, 1), 1000) : 1000;
+    const safeOffset = Number.isFinite(offset) ? Math.max(offset, 0) : 0;
 
     const products = await prisma.product.findMany({
       where: { deleted_at: null },
       orderBy: { id: 'desc' },
-      take: 10,
+      skip: safeOffset,
+      take: safeLimit,
       include: { product_categories: { include: { categories: true } } },
     });
 
@@ -6699,7 +6730,7 @@ app.get('/api/orders/track/:orderNumber', async (req: Request, res: Response) =>
       image_url: item.image_url ? item.image_url.substring(0, 50) + '...' : null
     })));
 
-    res.json(response);
+    res.json(response);   
     
   } catch (error) {
     console.error('❌ Error tracking order:', error);
