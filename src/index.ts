@@ -647,6 +647,9 @@ app.get('/api/products', async (req: Request, res: Response) => {
         description: p.description,
         price: Number(p.price),
         image_url: p.image_url,
+        image_url_two: p.image_url_two,
+        image_url_three: p.image_url_three,
+        image_url_four: p.image_url_four,
         stock: p.stock,
         category: p.product_categories[0]?.categories?.name ?? 'ทั่วไป',
       });
@@ -671,6 +674,9 @@ app.get('/api/products', async (req: Request, res: Response) => {
       description: p.description,
       price: Number(p.price),
       image_url: p.image_url,
+      image_url_two: p.image_url_two,
+      image_url_three: p.image_url_three,
+      image_url_four: p.image_url_four,
       stock: p.stock,
       category: p.product_categories[0]?.categories?.name ?? 'ทั่วไป',
     })));
@@ -699,6 +705,9 @@ app.get('/api/products/:id(\\d+)', async (req: Request, res: Response) => {
       description: p.description,
       price: Number(p.price),
       image_url: p.image_url,
+      image_url_two: p.image_url_two,
+      image_url_three: p.image_url_three,
+      image_url_four: p.image_url_four,
       stock: p.stock,
       category: p.product_categories[0]?.categories?.name ?? 'ทั่วไป',
     });
