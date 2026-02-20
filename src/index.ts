@@ -644,6 +644,7 @@ app.get('/api/products', async (req: Request, res: Response) => {
       return res.json({
         id: p.id,
         name: p.name,
+        description: p.description,
         price: Number(p.price),
         image_url: p.image_url,
         stock: p.stock,
@@ -667,6 +668,7 @@ app.get('/api/products', async (req: Request, res: Response) => {
     return res.json(products.map(p => ({
       id: p.id,
       name: p.name,
+      description: p.description,
       price: Number(p.price),
       image_url: p.image_url,
       stock: p.stock,
@@ -694,6 +696,7 @@ app.get('/api/products/:id(\\d+)', async (req: Request, res: Response) => {
     return res.json({
       id: p.id,
       name: p.name,
+      description: p.description,
       price: Number(p.price),
       image_url: p.image_url,
       stock: p.stock,
