@@ -652,6 +652,12 @@ app.get('/api/products', async (req: Request, res: Response) => {
         image_url_four: p.image_url_four,
         stock: p.stock,
         category: p.product_categories[0]?.categories?.name ?? 'ทั่วไป',
+        shipping_cost_bangkok: p.shipping_cost_bangkok ? Number(p.shipping_cost_bangkok) : 0,
+      shipping_cost_provinces: p.shipping_cost_provinces ? Number(p.shipping_cost_provinces) : 0,
+      has_special_shipping: p.has_special_shipping,
+      special_shipping_base: p.special_shipping_base ? Number(p.special_shipping_base) : null,
+      special_shipping_qty: p.special_shipping_qty,
+      special_shipping_extra: p.special_shipping_extra ? Number(p.special_shipping_extra) : null,
       });
     } 
  const limit = limitRaw != null ? Number(limitRaw) : 1000; // default 1000
@@ -679,6 +685,12 @@ app.get('/api/products', async (req: Request, res: Response) => {
       image_url_four: p.image_url_four,
       stock: p.stock,
       category: p.product_categories[0]?.categories?.name ?? 'ทั่วไป',
+      shipping_cost_bangkok: p.shipping_cost_bangkok ? Number(p.shipping_cost_bangkok) : 0,
+      shipping_cost_provinces: p.shipping_cost_provinces ? Number(p.shipping_cost_provinces) : 0,
+      has_special_shipping: p.has_special_shipping,
+      special_shipping_base: p.special_shipping_base ? Number(p.special_shipping_base) : null,
+      special_shipping_qty: p.special_shipping_qty,
+      special_shipping_extra: p.special_shipping_extra ? Number(p.special_shipping_extra) : null,
     })));
   } catch (error) {
     console.error('Error fetching products:', error);
@@ -710,6 +722,15 @@ app.get('/api/products/:id(\\d+)', async (req: Request, res: Response) => {
       image_url_four: p.image_url_four,
       stock: p.stock,
       category: p.product_categories[0]?.categories?.name ?? 'ทั่วไป',
+      shipping_cost_bangkok: p.shipping_cost_bangkok ? Number(p.shipping_cost_bangkok) : 0,
+      shipping_cost_provinces: p.shipping_cost_provinces ? Number(p.shipping_cost_provinces) : 0,
+      shipping_cost_remote: p.shipping_cost_remote ? Number(p.shipping_cost_remote) : 0,
+      free_shipping_threshold: p.free_shipping_threshold ? Number(p.free_shipping_threshold) : null,
+      delivery_time: p.delivery_time,
+      has_special_shipping: p.has_special_shipping,
+      special_shipping_base: p.special_shipping_base ? Number(p.special_shipping_base) : null,
+      special_shipping_qty: p.special_shipping_qty,
+      special_shipping_extra: p.special_shipping_extra ? Number(p.special_shipping_extra) : null,
     });
   } catch (error) {
     console.error('Error fetching product by id:', error);

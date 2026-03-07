@@ -539,9 +539,33 @@ app.get('/api/user/stats', auth_middleware_1.auth, async (req, res) => {
         return res.status(500).json({ success: false, message: 'ไม่สามารถดึงสถิติผู้ใช้ได้' });
     }
 });
+app.get('/api/_diag/db', async (_req, res) => {
+    try {
+        const [total, visible] = await Promise.all([
+            exports.prisma.product.count(),
+            exports.prisma.product.count({ where: { deleted_at: null } }),
+        ]);
+        let host = null;
+        let name = null;
+        try {
+            const u = new URL(process.env.DATABASE_URL || '');
+            host = u.host;
+            name = u.pathname?.replace('/', '') || null;
+        }
+        catch { }
+        return res.json({ ok: true, products: { total, visible }, database_url: { host, name } });
+    }
+    catch (e) {
+        return res.status(500).json({ ok: false, error: e?.message || 'diag failed' });
+    }
+});
 // API สำหรับดึงสินค้าทั้งหมด
 app.get('/api/products', async (req, res) => {
     try {
+        res.setHeader('X-API-REV', 'products-limit-1000');
+        res.setHeader('Cache-Control', 'no-store');
+        const limitRaw = req.query.limit;
+        const offsetRaw = req.query.offset;
         const idParam = req.query.id;
         if (idParam !== undefined) {
             const id = Number(idParam);
@@ -556,23 +580,36 @@ app.get('/api/products', async (req, res) => {
             return res.json({
                 id: p.id,
                 name: p.name,
+                description: p.description,
                 price: Number(p.price),
                 image_url: p.image_url,
+                image_url_two: p.image_url_two,
+                image_url_three: p.image_url_three,
+                image_url_four: p.image_url_four,
                 stock: p.stock,
                 category: p.product_categories[0]?.categories?.name ?? 'ทั่วไป',
             });
         }
+        const limit = limitRaw != null ? Number(limitRaw) : 1000; // default 1000
+        const offset = offsetRaw != null ? Number(offsetRaw) : 0;
+        const safeLimit = Number.isFinite(limit) ? Math.min(Math.max(limit, 1), 1000) : 1000;
+        const safeOffset = Number.isFinite(offset) ? Math.max(offset, 0) : 0;
         const products = await exports.prisma.product.findMany({
             where: { deleted_at: null },
             orderBy: { id: 'desc' },
-            take: 10,
+            skip: safeOffset,
+            take: safeLimit,
             include: { product_categories: { include: { categories: true } } },
         });
         return res.json(products.map(p => ({
             id: p.id,
             name: p.name,
+            description: p.description,
             price: Number(p.price),
             image_url: p.image_url,
+            image_url_two: p.image_url_two,
+            image_url_three: p.image_url_three,
+            image_url_four: p.image_url_four,
             stock: p.stock,
             category: p.product_categories[0]?.categories?.name ?? 'ทั่วไป',
         })));
@@ -596,8 +633,12 @@ app.get('/api/products/:id(\\d+)', async (req, res) => {
         return res.json({
             id: p.id,
             name: p.name,
+            description: p.description,
             price: Number(p.price),
             image_url: p.image_url,
+            image_url_two: p.image_url_two,
+            image_url_three: p.image_url_three,
+            image_url_four: p.image_url_four,
             stock: p.stock,
             category: p.product_categories[0]?.categories?.name ?? 'ทั่วไป',
         });
@@ -718,11 +759,25 @@ app.get('/api/categories', async (req, res) => {
     try {
         const categories = await exports.prisma.categories.findMany({
             orderBy: { id: 'desc' },
-            select: { id: true, name: true }
+            select: {
+                id: true,
+                name: true,
+                image_url_cate: true,
+                is_active: true,
+                _count: { select: { product_categories: true } }
+            }
         });
-        res.json(categories);
+        const formatted = categories.map((c) => ({
+            id: c.id,
+            name: c.name,
+            image_url_cate: c.image_url_cate,
+            is_active: c.is_active,
+            products_count: c._count?.product_categories ?? 0
+        }));
+        res.json(formatted);
     }
     catch (error) {
+        console.error('Error fetching categories:', error);
         res.status(500).json({ error: 'Failed to fetch categories' });
     }
 });
@@ -4962,8 +5017,8 @@ app.get('/api/categories/tree', async (req, res) => {
         const result = categories.map((c) => ({
             id: c.id,
             name: c.name,
-            slug: c.slug || toSlug(c.name), // ใช้ slug จาก DB ก่อน
-            image_url: c.image_url_cate || null,
+            slug: c.slug || toSlug(c.name),
+            image_url: c.image_url || c.image_url_cate || null, // ใช้ image_url เป็นหลัก
             products_count: c._count?.product_categories ?? 0,
             children: []
         }));
