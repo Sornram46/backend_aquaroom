@@ -21,6 +21,7 @@ const routes = {
   '/admin/settings/contact': () => window.contactMessagesManager.renderContactSettingPage(),
   '/admin/settings/logo': showLogoSettings,
   '/admin/settings/payments': showPaymentSettings,
+  '/admin/settings/email-notifications': showEmailNotificationSettings,
 
   
 };
@@ -557,6 +558,496 @@ async function showPaymentSettings() {
     }
   }
 }
+
+
+// เพิ่มฟังก์ชันใหม่ (ประมาณหลัง showPaymentSettings)
+async function showEmailNotificationSettings() {
+  const mainContent = document.getElementById('main-content');
+  if (!mainContent) return;
+
+  try {
+    // โหลดการตั้งค่าปัจจุบัน
+    const response = await fetch('/api/admin/settings/email-notifications');
+    const settings = response.ok ? await response.json() : { success: false };
+
+    mainContent.innerHTML = `
+      <div class="max-w-4xl mx-auto">
+        <!-- Header -->
+        <div class="mb-6">
+          <div class="flex items-center space-x-4">
+            <button 
+              onclick="window.history.back()" 
+              class="text-gray-400 hover:text-gray-600"
+              title="กลับ"
+            >
+              <i data-lucide="arrow-left" class="w-5 h-5"></i>
+            </button>
+            <div>
+              <h1 class="text-2xl font-bold text-gray-900">📧 การแจ้งเตือนทาง Email</h1>
+              <p class="text-sm text-gray-600">ตั้งค่าการส่ง Email แจ้งเตือนเมื่อมีออเดอร์ใหม่</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Current Status -->
+        <div class="bg-white rounded-xl shadow-sm p-6 mb-6">
+          <h2 class="text-lg font-semibold mb-4 flex items-center gap-2">
+            <i data-lucide="activity" class="w-5 h-5 text-indigo-600"></i>
+            สถานะปัจจุบัน
+          </h2>
+          
+          <div id="email-status" class="space-y-3">
+            <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+              <span class="text-sm font-medium text-gray-700">การเชื่อมต่อ Email Server</span>
+              <span class="text-sm ${settings.data?.is_configured ? 'text-green-600' : 'text-red-600'}">
+                ${settings.data?.is_configured ? '✅ เชื่อมต่อแล้ว' : '❌ ยังไม่ได้ตั้งค่า'}
+              </span>
+            </div>
+            
+            <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+              <span class="text-sm font-medium text-gray-700">การแจ้งเตือนออเดอร์ใหม่</span>
+              <span class="text-sm ${settings.data?.order_notification_enabled ? 'text-green-600' : 'text-gray-500'}">
+                ${settings.data?.order_notification_enabled ? '✅ เปิดใช้งาน' : '⚪ ปิดใช้งาน'}
+              </span>
+            </div>
+            
+            ${settings.data?.admin_email ? `
+              <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                <span class="text-sm font-medium text-gray-700">อีเมลผู้ดูแลระบบ</span>
+                <span class="text-sm text-gray-600">${settings.data.admin_email}</span>
+              </div>
+            ` : ''}
+          </div>
+        </div>
+
+        <!-- Email Configuration Form -->
+        <div class="bg-white rounded-xl shadow-sm p-6 mb-6">
+          <h2 class="text-lg font-semibold mb-4 flex items-center gap-2">
+            <i data-lucide="settings" class="w-5 h-5 text-indigo-600"></i>
+            ตั้งค่า Email Server
+          </h2>
+
+          <form id="email-config-form" class="space-y-4">
+            <!-- Email Service Provider -->
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-2">
+                ผู้ให้บริการอีเมล *
+              </label>
+              <select 
+                id="email-service" 
+                name="email_service"
+                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                onchange="toggleCustomSmtp()"
+              >
+                <option value="gmail" ${settings.data?.email_service === 'gmail' ? 'selected' : ''}>Gmail</option>
+                <option value="outlook" ${settings.data?.email_service === 'outlook' ? 'selected' : ''}>Outlook</option>
+                <option value="custom" ${settings.data?.email_service === 'custom' ? 'selected' : ''}>Custom SMTP</option>
+              </select>
+            </div>
+
+            <!-- Admin Email -->
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-2">
+                อีเมลผู้ดูแลระบบ (ที่จะรับการแจ้งเตือน) *
+              </label>
+              <input 
+                type="email" 
+                id="admin-email" 
+                name="admin_email"
+                value="${settings.data?.admin_email || ''}"
+                required
+                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                placeholder="admin@aquaroom.com"
+              >
+            </div>
+
+            <!-- Email User (Sender) -->
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-2">
+                อีเมลที่ใช้ส่ง (Email User) *
+              </label>
+              <input 
+                type="email" 
+                id="email-user" 
+                name="email_user"
+                value="${settings.data?.email_user || ''}"
+                required
+                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                placeholder="noreply@aquaroom.com"
+              >
+            </div>
+
+            <!-- Email Password / App Password -->
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
+                รหัสผ่าน (App Password) *
+                <button 
+                  type="button" 
+                  onclick="showAppPasswordHelp()"
+                  class="text-indigo-600 hover:text-indigo-800"
+                >
+                  <i data-lucide="help-circle" class="w-4 h-4"></i>
+                </button>
+              </label>
+              <input 
+                type="password" 
+                id="email-password" 
+                name="email_password"
+                value="${settings.data?.email_password ? '••••••••••••••••' : ''}"
+                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                placeholder="ใส่ App Password 16 หลัก"
+              >
+              <p class="text-xs text-gray-500 mt-1">
+                ⚠️ สำหรับ Gmail ต้องใช้ App Password (ไม่ใช่รหัสผ่านปกติ)
+              </p>
+            </div>
+
+            <!-- Custom SMTP Settings (Hidden by default) -->
+            <div id="custom-smtp-section" class="hidden space-y-4 border-t pt-4">
+              <h3 class="font-medium text-gray-900">ตั้งค่า Custom SMTP</h3>
+              
+              <div class="grid grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-2">SMTP Host</label>
+                  <input 
+                    type="text" 
+                    id="smtp-host" 
+                    name="smtp_host"
+                    value="${settings.data?.smtp_host || ''}"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                    placeholder="smtp.example.com"
+                  >
+                </div>
+                
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-2">SMTP Port</label>
+                  <input 
+                    type="number" 
+                    id="smtp-port" 
+                    name="smtp_port"
+                    value="${settings.data?.smtp_port || '587'}"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                  >
+                </div>
+              </div>
+
+              <div class="flex items-center">
+                <input 
+                  type="checkbox" 
+                  id="smtp-secure" 
+                  name="smtp_secure"
+                  ${settings.data?.smtp_secure ? 'checked' : ''}
+                  class="h-4 w-4 text-indigo-600 border-gray-300 rounded"
+                >
+                <label for="smtp-secure" class="ml-2 text-sm text-gray-700">
+                  ใช้การเชื่อมต่อแบบปลอดภัย (TLS/SSL)
+                </label>
+              </div>
+            </div>
+
+            <!-- Enable Order Notifications -->
+            <div class="border-t pt-4">
+              <div class="flex items-center justify-between">
+                <div>
+                  <label class="font-medium text-gray-900">เปิดการแจ้งเตือนออเดอร์ใหม่</label>
+                  <p class="text-sm text-gray-500">ส่งอีเมลทันทีเมื่อมีออเดอร์ใหม่</p>
+                </div>
+                <div class="relative inline-block">
+                  <input 
+                    type="checkbox" 
+                    id="enable-notifications" 
+                    name="order_notification_enabled"
+                    ${settings.data?.order_notification_enabled ? 'checked' : ''}
+                    class="hidden"
+                  >
+                  <button 
+                    type="button"
+                    id="toggle-button"
+                    class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 ${settings.data?.order_notification_enabled ? 'bg-indigo-600' : 'bg-gray-200'}"
+                    role="switch"
+                    aria-checked="${settings.data?.order_notification_enabled ? 'true' : 'false'}"
+                  >
+                    <span class="sr-only">เปิดการแจ้งเตือน</span>
+                    <span class="inline-block h-5 w-5 transform rounded-full bg-white shadow-lg transition-transform ${settings.data?.order_notification_enabled ? 'translate-x-6' : 'translate-x-1'}"></span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="flex justify-end space-x-3 pt-4 border-t">
+              <button 
+                type="button" 
+                onclick="testEmailConnection()"
+                class="px-4 py-2 border border-indigo-600 text-indigo-600 rounded-lg hover:bg-indigo-50 flex items-center"
+              >
+                <i data-lucide="send" class="w-4 h-4 mr-2"></i>
+                ทดสอบการส่ง Email
+              </button>
+              <button 
+                type="submit" 
+                id="save-email-btn"
+                class="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center"
+              >
+                <span id="save-email-text">บันทึกการตั้งค่า</span>
+                <svg id="save-email-loading" class="hidden animate-spin ml-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <!-- Help Section -->
+        <div class="bg-blue-50 border border-blue-200 rounded-xl p-6">
+          <h3 class="font-semibold text-blue-900 mb-3 flex items-center gap-2">
+            <i data-lucide="book-open" class="w-5 h-5"></i>
+            วิธีการตั้งค่า Gmail App Password
+          </h3>
+          <ol class="text-sm text-blue-800 space-y-2 ml-4 list-decimal">
+            <li>เข้าไปที่ <a href="https://myaccount.google.com/security" target="_blank" class="underline">Google Account Security</a></li>
+            <li>เปิดใช้งาน "2-Step Verification"</li>
+            <li>ไปที่ "App passwords" และสร้าง App Password สำหรับ "Mail"</li>
+            <li>คัดลอก Password 16 หลักมาใส่ในช่อง "รหัสผ่าน"</li>
+            <li>บันทึกการตั้งค่า</li>
+          </ol>
+        </div>
+      </div>
+    `;
+
+    // Setup event handlers
+    document.getElementById('email-config-form').addEventListener('submit', handleEmailConfigSubmit);
+    
+    // Toggle custom SMTP section if custom is selected
+    toggleCustomSmtp();
+
+    // ตั้งค่า Toggle button สำหรับการแจ้งเตือน
+    setupNotificationToggle();
+
+    // Initialize icons
+    if (typeof lucide !== 'undefined') {
+      lucide.createIcons();
+    }
+
+  } catch (error) {
+    console.error('Error loading email notification settings:', error);
+    mainContent.innerHTML = `
+      <div class="text-center py-12">
+        <i data-lucide="alert-circle" class="w-12 h-12 text-red-500 mx-auto mb-4"></i>
+        <h3 class="text-lg font-medium text-gray-900 mb-2">เกิดข้อผิดพลาด</h3>
+        <p class="text-gray-600">${error.message}</p>
+      </div>
+    `;
+  }
+}
+
+// Helper Functions
+function toggleCustomSmtp() {
+  const service = document.getElementById('email-service')?.value;
+  const customSection = document.getElementById('custom-smtp-section');
+  
+  if (customSection) {
+    if (service === 'custom') {
+      customSection.classList.remove('hidden');
+    } else {
+      customSection.classList.add('hidden');
+    }
+  }
+}
+
+// ฟังก์ชันสำหรับ Toggle การแจ้งเตือน
+function setupNotificationToggle() {
+  const toggleButton = document.getElementById('toggle-button');
+  const checkbox = document.getElementById('enable-notifications');
+  
+  if (!toggleButton || !checkbox) return;
+  
+  toggleButton.addEventListener('click', function() {
+    // สลับสถานะ checkbox
+    checkbox.checked = !checkbox.checked;
+    
+    // อัพเดท UI
+    const isChecked = checkbox.checked;
+    
+    // เปลี่ยนสีพื้นหลัง
+    if (isChecked) {
+      toggleButton.classList.remove('bg-gray-200');
+      toggleButton.classList.add('bg-indigo-600');
+      toggleButton.setAttribute('aria-checked', 'true');
+    } else {
+      toggleButton.classList.remove('bg-indigo-600');
+      toggleButton.classList.add('bg-gray-200');
+      toggleButton.setAttribute('aria-checked', 'false');
+    }
+    
+    // เลื่อนปุ่มกลม
+    const circle = toggleButton.querySelector('span:last-child');
+    if (circle) {
+      if (isChecked) {
+        circle.classList.remove('translate-x-1');
+        circle.classList.add('translate-x-6');
+      } else {
+        circle.classList.remove('translate-x-6');
+        circle.classList.add('translate-x-1');
+      }
+    }
+    
+    // แสดงสถานะใน console
+    console.log('📧 Order notification:', isChecked ? 'เปิด ✅' : 'ปิด ⚪');
+  });
+}
+
+// ฟังก์ชันอัพเดทสถานะของ Toggle (สำหรับใช้ที่อื่น)
+function updateToggleState(checkbox) {
+  const toggleButton = document.getElementById('toggle-button');
+  const circle = toggleButton?.querySelector('span:last-child');
+  
+  if (!toggleButton || !circle) return;
+  
+  const isChecked = checkbox.checked;
+  
+  if (isChecked) {
+    toggleButton.classList.remove('bg-gray-200');
+    toggleButton.classList.add('bg-indigo-600');
+    toggleButton.setAttribute('aria-checked', 'true');
+    circle.classList.remove('translate-x-1');
+    circle.classList.add('translate-x-6');
+  } else {
+    toggleButton.classList.remove('bg-indigo-600');
+    toggleButton.classList.add('bg-gray-200');
+    toggleButton.setAttribute('aria-checked', 'false');
+    circle.classList.remove('translate-x-6');
+    circle.classList.add('translate-x-1');
+  }
+}
+
+async function handleEmailConfigSubmit(e) {
+  e.preventDefault();
+  
+  const saveBtn = document.getElementById('save-email-btn');
+  const saveText = document.getElementById('save-email-text');
+  const saveLoading = document.getElementById('save-email-loading');
+  
+  try {
+    saveBtn.disabled = true;
+    saveText.textContent = 'กำลังบันทึก...';
+    saveLoading.classList.remove('hidden');
+    
+    const formData = new FormData(e.target);
+    const data = Object.fromEntries(formData);
+    
+    // Convert checkbox to boolean
+    const notificationEnabled = document.getElementById('enable-notifications').checked;
+    data.order_notification_enabled = notificationEnabled;
+    data.smtp_secure = document.getElementById('smtp-secure')?.checked || false;
+    
+    console.log('💾 Saving email settings:', {
+      ...data,
+      order_notification_enabled: notificationEnabled,
+      email_password: '***hidden***'
+    });
+    
+    const response = await fetch('/api/admin/settings/email-notifications', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(data)
+    });
+    
+    const result = await response.json();
+    
+    if (result.success) {
+      Swal.fire({
+        icon: 'success',
+        title: 'บันทึกสำเร็จ!',
+        text: 'การตั้งค่าอีเมลได้รับการอัปเดตแล้ว',
+        timer: 2000,
+        showConfirmButton: false
+      });
+      
+      // Reload settings
+      setTimeout(() => showEmailNotificationSettings(), 2000);
+    } else {
+      throw new Error(result.error || 'ไม่สามารถบันทึกการตั้งค่าได้');
+    }
+    
+  } catch (error) {
+    console.error('Error saving email config:', error);
+    Swal.fire({
+      icon: 'error',
+      title: 'เกิดข้อผิดพลาด!',
+      text: error.message
+    });
+  } finally {
+    saveBtn.disabled = false;
+    saveText.textContent = 'บันทึกการตั้งค่า';
+    saveLoading.classList.add('hidden');
+  }
+}
+
+async function testEmailConnection() {
+  try {
+    Swal.fire({
+      title: 'กำลังทดสอบ...',
+      text: 'กำลังส่งอีเมลทดสอบ',
+      allowOutsideClick: false,
+      didOpen: () => {
+        Swal.showLoading();
+      }
+    });
+    
+    const response = await fetch('/api/admin/settings/test-email', {
+      method: 'POST'
+    });
+    
+    const result = await response.json();
+    
+    if (result.success) {
+      Swal.fire({
+        icon: 'success',
+        title: 'ทดสอบสำเร็จ!',
+        html: `
+          <p>ส่งอีเมลทดสอบสำเร็จ</p>
+          <p class="text-sm text-gray-600 mt-2">กรุณาตรวจสอบกล่องจดหมายของคุณ</p>
+        `
+      });
+    } else {
+      throw new Error(result.error || 'การทดสอบล้มเหลว');
+    }
+    
+  } catch (error) {
+    console.error('Error testing email:', error);
+    Swal.fire({
+      icon: 'error',
+      title: 'การทดสอบล้มเหลว!',
+      text: error.message
+    });
+  }
+}
+
+function showAppPasswordHelp() {
+  Swal.fire({
+    title: '📧 วิธีสร้าง Gmail App Password',
+    html: `
+      <div class="text-left space-y-3">
+        <p class="text-sm">1. เข้าไปที่ <a href="https://myaccount.google.com/security" target="_blank" class="text-indigo-600 underline">Google Account Security</a></p>
+        <p class="text-sm">2. เปิดใช้งาน "2-Step Verification"</p>
+        <p class="text-sm">3. ค้นหา "App passwords"</p>
+        <p class="text-sm">4. สร้าง App Password สำหรับ "Mail"</p>
+        <p class="text-sm">5. คัดลอก Password 16 หลัก</p>
+        <p class="text-sm">6. นำมาใส่ในช่อง "รหัสผ่าน"</p>
+      </div>
+    `,
+    icon: 'info',
+    confirmButtonText: 'เข้าใจแล้ว'
+  });
+}
+
+
+
+
 
 // Load current logos from API
 async function loadCurrentLogos() {
@@ -2464,6 +2955,13 @@ function showSettings() {
         </div>
         <p class="text-gray-600 text-sm">ตั้งค่าข้อมูลเกี่ยวกับหน้าวิธีการชำระเงิน</p>
       </a>
+      <a href="/admin/settings/email-notifications" class="block p-6 bg-white rounded-xl shadow hover:bg-indigo-50 transition">
+        <div class="flex items-center mb-2">
+          <i data-lucide="mail" class="w-6 h-6 text-indigo-600 mr-2"></i>
+          <span class="font-semibold text-lg">การแจ้งเตือนทาง Email</span>
+        </div>
+        <p class="text-gray-600 text-sm">ตั้งค่าการส่งอีเมลแจ้งเตือนออเดอร์ใหม่</p>
+      </a>  
     </div>
   `;
   lucide.createIcons();

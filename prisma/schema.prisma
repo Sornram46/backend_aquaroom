@@ -797,3 +797,31 @@ model contact_setting {
   updated_at DateTime @updatedAt
   created_at DateTime @default(now())
 }
+
+// ===================================
+// EMAIL NOTIFICATION SETTINGS
+// ===================================
+model email_notification_settings {
+  id                        Int      @id @default(autoincrement())
+  
+  // Email service configuration
+  email_service             String   @default("gmail") @db.VarChar(50) // gmail, outlook, custom
+  admin_email               String   @db.VarChar(255) // อีเมลที่จะรับการแจ้งเตือน
+  email_user                String   @db.VarChar(255) // อีเมลที่ใช้ส่ง
+  email_password            String?  @db.Text // App Password (encrypted)
+  
+  // Custom SMTP settings (optional)
+  smtp_host                 String?  @db.VarChar(255)
+  smtp_port                 Int?     @default(587)
+  smtp_secure               Boolean  @default(false)
+  
+  // Notification settings
+  order_notification_enabled Boolean @default(true)
+  is_configured             Boolean  @default(false)
+  
+  // Timestamps
+  created_at                DateTime @default(now())
+  updated_at                DateTime @updatedAt
+  
+  @@map("email_notification_settings")
+}

@@ -588,6 +588,12 @@ app.get('/api/products', async (req, res) => {
                 image_url_four: p.image_url_four,
                 stock: p.stock,
                 category: p.product_categories[0]?.categories?.name ?? 'ทั่วไป',
+                shipping_cost_bangkok: p.shipping_cost_bangkok ? Number(p.shipping_cost_bangkok) : 0,
+                shipping_cost_provinces: p.shipping_cost_provinces ? Number(p.shipping_cost_provinces) : 0,
+                has_special_shipping: p.has_special_shipping,
+                special_shipping_base: p.special_shipping_base ? Number(p.special_shipping_base) : null,
+                special_shipping_qty: p.special_shipping_qty,
+                special_shipping_extra: p.special_shipping_extra ? Number(p.special_shipping_extra) : null,
             });
         }
         const limit = limitRaw != null ? Number(limitRaw) : 1000; // default 1000
@@ -612,6 +618,12 @@ app.get('/api/products', async (req, res) => {
             image_url_four: p.image_url_four,
             stock: p.stock,
             category: p.product_categories[0]?.categories?.name ?? 'ทั่วไป',
+            shipping_cost_bangkok: p.shipping_cost_bangkok ? Number(p.shipping_cost_bangkok) : 0,
+            shipping_cost_provinces: p.shipping_cost_provinces ? Number(p.shipping_cost_provinces) : 0,
+            has_special_shipping: p.has_special_shipping,
+            special_shipping_base: p.special_shipping_base ? Number(p.special_shipping_base) : null,
+            special_shipping_qty: p.special_shipping_qty,
+            special_shipping_extra: p.special_shipping_extra ? Number(p.special_shipping_extra) : null,
         })));
     }
     catch (error) {
@@ -641,6 +653,15 @@ app.get('/api/products/:id(\\d+)', async (req, res) => {
             image_url_four: p.image_url_four,
             stock: p.stock,
             category: p.product_categories[0]?.categories?.name ?? 'ทั่วไป',
+            shipping_cost_bangkok: p.shipping_cost_bangkok ? Number(p.shipping_cost_bangkok) : 0,
+            shipping_cost_provinces: p.shipping_cost_provinces ? Number(p.shipping_cost_provinces) : 0,
+            shipping_cost_remote: p.shipping_cost_remote ? Number(p.shipping_cost_remote) : 0,
+            free_shipping_threshold: p.free_shipping_threshold ? Number(p.free_shipping_threshold) : null,
+            delivery_time: p.delivery_time,
+            has_special_shipping: p.has_special_shipping,
+            special_shipping_base: p.special_shipping_base ? Number(p.special_shipping_base) : null,
+            special_shipping_qty: p.special_shipping_qty,
+            special_shipping_extra: p.special_shipping_extra ? Number(p.special_shipping_extra) : null,
         });
     }
     catch (error) {
@@ -4982,6 +5003,129 @@ app.post('/api/admin/payment-settings/upload-bank-icon', handleFileUploadWithBus
 });
 // เพิ่ม static file serving สำหรับ bank icons
 app.use('/uploads/bank-icons', express_1.default.static(path_1.default.join(__dirname, '../uploads/bank-icons')));
+// ===================================
+// EMAIL NOTIFICATION SETTINGS API
+// ===================================
+const emailService_1 = require("./utils/emailService");
+// GET /api/admin/settings/email-notifications - ดึงการตั้งค่าอีเมล
+app.get('/api/admin/settings/email-notifications', async (req, res) => {
+    try {
+        console.log('📧 Loading email notification settings...');
+        const settings = await exports.prisma.email_notification_settings.findFirst({
+            orderBy: { id: 'desc' }
+        });
+        if (!settings) {
+            return res.json({
+                success: true,
+                data: {
+                    email_service: 'gmail',
+                    admin_email: '',
+                    email_user: '',
+                    order_notification_enabled: false,
+                    is_configured: false
+                }
+            });
+        }
+        // ไม่ส่ง password กลับไปทาง response
+        const { email_password, ...safeSettings } = settings;
+        res.json({
+            success: true,
+            data: safeSettings
+        });
+    }
+    catch (error) {
+        console.error('❌ Error loading email settings:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+// POST /api/admin/settings/email-notifications - บันทึกการตั้งค่าอีเมล
+app.post('/api/admin/settings/email-notifications', async (req, res) => {
+    try {
+        console.log('💾 Saving email notification settings...');
+        const { email_service, admin_email, email_user, email_password, smtp_host, smtp_port, smtp_secure, order_notification_enabled } = req.body;
+        // Validate required fields
+        if (!email_service || !admin_email || !email_user) {
+            return res.status(400).json({
+                success: false,
+                error: 'กรุณากรอกข้อมูลให้ครบถ้วน'
+            });
+        }
+        // ตรวจสอบว่ามีการตั้งค่าอยู่แล้วหรือไม่
+        const existing = await exports.prisma.email_notification_settings.findFirst();
+        let result;
+        const settingsData = {
+            email_service,
+            admin_email,
+            email_user,
+            smtp_host: smtp_host || null,
+            smtp_port: smtp_port ? parseInt(smtp_port) : 587,
+            smtp_secure: smtp_secure === true || smtp_secure === 'true',
+            order_notification_enabled: order_notification_enabled === true || order_notification_enabled === 'true',
+            is_configured: true
+        };
+        // อัปเดต password เฉพาะเมื่อมีการส่งมา (ไม่ใช่ placeholder)
+        if (email_password && !email_password.includes('••')) {
+            settingsData.email_password = email_password;
+        }
+        if (existing) {
+            result = await exports.prisma.email_notification_settings.update({
+                where: { id: existing.id },
+                data: settingsData
+            });
+            console.log('✅ Email settings updated');
+        }
+        else {
+            result = await exports.prisma.email_notification_settings.create({
+                data: settingsData
+            });
+            console.log('✅ Email settings created');
+        }
+        // ไม่ส่ง password กลับไป
+        const { email_password: _, ...safeResult } = result;
+        res.json({
+            success: true,
+            data: safeResult,
+            message: 'บันทึกการตั้งค่าสำเร็จ'
+        });
+    }
+    catch (error) {
+        console.error('❌ Error saving email settings:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+// POST /api/admin/settings/test-email - ทดสอบการส่งอีเมล
+app.post('/api/admin/settings/test-email', async (req, res) => {
+    try {
+        console.log('📧 Sending test email...');
+        const result = await (0, emailService_1.sendTestEmail)();
+        if (result.success) {
+            res.json({
+                success: true,
+                message: 'ส่งอีเมลทดสอบสำเร็จ กรุณาตรวจสอบกล่องจดหมายของคุณ',
+                messageId: result.messageId
+            });
+        }
+        else {
+            res.status(500).json({
+                success: false,
+                error: result.error || 'ไม่สามารถส่งอีเมลทดสอบได้'
+            });
+        }
+    }
+    catch (error) {
+        console.error('❌ Error sending test email:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
 // Helper: สร้าง slug จากชื่อ
 function toSlug(name) {
     return String(name || '')
@@ -5481,6 +5625,53 @@ app.post('/api/orders', async (req, res) => {
             return newOrder;
         });
         console.log('✅ Order created successfully with stock reduction:', result.id);
+        // 📧 ส่งอีเมลแจ้งเตือนออเดอร์ใหม่ (ไม่รอผลลัพธ์เพื่อไม่ให้ช้า)
+        (async () => {
+            try {
+                // ดึงข้อมูลเพิ่มเติมสำหรับส่งอีเมล
+                const orderWithDetails = await exports.prisma.orders.findUnique({
+                    where: { id: result.id },
+                    include: {
+                        order_items: {
+                            include: {
+                                products: true
+                            }
+                        },
+                        user_addresses: true,
+                        users: true
+                    }
+                });
+                if (orderWithDetails) {
+                    const emailData = {
+                        orderId: orderWithDetails.id,
+                        orderNumber: orderWithDetails.order_number,
+                        customerName: orderWithDetails.user_addresses.name,
+                        phone: orderWithDetails.user_addresses.phone,
+                        address: `${orderWithDetails.user_addresses.address_line1}${orderWithDetails.user_addresses.address_line2 ? ' ' + orderWithDetails.user_addresses.address_line2 : ''}, ${orderWithDetails.user_addresses.district}, ${orderWithDetails.user_addresses.city}, ${orderWithDetails.user_addresses.province} ${orderWithDetails.user_addresses.postal_code}`,
+                        totalAmount: Number(orderWithDetails.total_amount),
+                        subtotal: Number(orderWithDetails.subtotal),
+                        shippingFee: Number(orderWithDetails.shipping_fee),
+                        discount: Number(orderWithDetails.discount),
+                        items: orderWithDetails.order_items.map((item) => ({
+                            name: item.products.name,
+                            quantity: item.quantity,
+                            price: Number(item.price)
+                        }))
+                    };
+                    const emailResult = await (0, emailService_1.sendOrderNotification)(emailData);
+                    if (emailResult.success) {
+                        console.log('✅ Order notification email sent successfully');
+                    }
+                    else {
+                        console.warn('⚠️ Failed to send order notification email:', emailResult.error);
+                    }
+                }
+            }
+            catch (emailError) {
+                console.error('❌ Error sending order notification email:', emailError);
+                // ไม่ให้ error ของอีเมลทำให้การสร้างออเดอร์ล้มเหลว
+            }
+        })();
         // ส่ง response
         res.json({
             success: true,
