@@ -5250,6 +5250,12 @@ const bankAccountsArray = (settings?.bank_accounts as any[] || []).map((account:
     }));
 
     const result = {
+      // PromptPay Settings
+      promptpay_enabled: settings.promptpay_enabled || false,
+      promptpay_id: settings.promptpay_id || null,
+      promptpay_name: settings.promptpay_name || null,
+      promptpay_qr_type: (settings.promptpay_qr_type as 'phone' | 'tax_id') || 'phone',
+      // Bank Transfer Settings
       bank_transfer_enabled: settings.bank_transfer_enabled,
       credit_card_enabled: settings.credit_card_enabled,
       cod_enabled: settings.cod_enabled,
