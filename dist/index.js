@@ -5629,6 +5629,8 @@ app.post('/api/orders', async (req, res) => {
                 console.log('✅ Stock updated successfully for all items');
             }
             return newOrder;
+        }, {
+            timeout: 30000, // เพิ่ม timeout เป็น 30 วินาที สำหรับ order ที่มีสินค้าเยอะ
         });
         console.log('✅ Order created successfully with stock reduction:', result.id);
         // 📧 ส่งอีเมลแจ้งเตือนออเดอร์ใหม่ (ไม่รอผลลัพธ์เพื่อไม่ให้ช้า)
