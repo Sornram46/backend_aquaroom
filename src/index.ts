@@ -5907,6 +5907,16 @@ app.post('/api/calculate-shipping', async (req: Request, res: Response) => {
     const details: any[] = [];
     let totalShippingCost = 0;
 
+    const toNum = (v: any): number | null => {
+      if (v === null || v === undefined) return null;
+      try {
+        const s = typeof v === 'object' && typeof (v as any).toString === 'function' ? (v as any).toString() : v;
+        const n = Number(s);
+        return Number.isFinite(n) ? n : null;
+      } catch { return null; }
+    };
+
+    const freeShippingThresholds: number[] = [];
     const specialProducts: { product: any; quantity: number }[] = [];
     const normalProducts: { product: any; quantity: number }[] = [];
 
@@ -5923,11 +5933,41 @@ app.post('/api/calculate-shipping', async (req: Request, res: Response) => {
         continue;
       }
 
+      const threshold = toNum(product.free_shipping_threshold);
+      if (threshold != null && threshold > 0) {
+        freeShippingThresholds.push(threshold);
+      }
+
       if (product.has_special_shipping && product.special_shipping_base != null) {
         specialProducts.push({ product, quantity: row.quantity });
       } else {
         normalProducts.push({ product, quantity: row.quantity });
       }
+    }
+
+    const configuredFreeShippingThreshold = freeShippingThresholds.length > 0
+      ? Math.min(...freeShippingThresholds)
+      : null;
+
+    const subtotalValue = Number(subtotal || 0);
+    if (configuredFreeShippingThreshold != null && subtotalValue >= configuredFreeShippingThreshold) {
+      return res.json({
+        success: true,
+        version: 'server-shipping-v2',
+        shippingCost: 0,
+        data: {
+          totalShippingCost: 0,
+          details: [
+            {
+              type: 'free_shipping_threshold',
+              threshold: configuredFreeShippingThreshold,
+              subtotal: subtotalValue,
+              freeShippingApplied: true
+            }
+          ],
+          freeShippingApplied: true
+        }
+      });
     }
 
     // กำหนด config ค่าจัดส่งพิเศษ (ใช้ค่าคงที่ตามโจทย์ หรือจากสินค้าแรกถ้าต้อง)
@@ -5969,15 +6009,6 @@ app.post('/api/calculate-shipping', async (req: Request, res: Response) => {
     }
 
     // คิดสินค้าปกติ (รองรับค่าส่งระดับสินค้า -> กฎหมวดหมู่ -> default)
-    const toNum = (v: any): number | null => {
-      if (v === null || v === undefined) return null;
-      try {
-        // Prisma Decimal อาจต้องแปลงเป็น string ก่อน
-        const s = typeof v === 'object' && typeof (v as any).toString === 'function' ? (v as any).toString() : v;
-        const n = Number(s);
-        return Number.isFinite(n) ? n : null;
-      } catch { return null; }
-    };
     for (const { product, quantity } of normalProducts) {
       // 1) ค่าส่งระดับสินค้า (ถ้ากำหนดไว้ ใช้ก่อน)
       const provinces = toNum(product.shipping_cost_provinces);
