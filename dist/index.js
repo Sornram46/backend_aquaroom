@@ -29,6 +29,132 @@ app.use((0, cors_1.default)());
 app.use(express_1.default.json());
 app.use((0, cookie_parser_1.default)());
 app.use(express_1.default.urlencoded({ extended: true }));
+const API_RATE_LIMIT_WINDOW_MS = 60000;
+const BLOCKED_IPS = new Set();
+const RATE_BUCKETS = new Map();
+const SENSITIVE_PATHS = [
+    '/api/orders',
+    '/api/checkout',
+    '/api/payment-settings',
+    '/api/validate-slip',
+    '/api/user',
+    '/api/auth/refresh',
+    '/api/contact',
+    '/api/products',
+    '/api/calculate-shipping',
+];
+const BROWSER_USER_AGENTS = /mozilla|chrome|safari|firefox|edge/i;
+const SUSPICIOUS_USER_AGENTS = /curl|wget|python-requests|postman|insomnia|httpie|scrapy|go-http-client|okhttp|aiohttp|headless|puppeteer/i;
+function normalizeOrigin(value) {
+    if (!value)
+        return null;
+    try {
+        const url = new URL(value);
+        return url.origin;
+    }
+    catch {
+        return null;
+    }
+}
+function getAllowedOrigins() {
+    const values = [
+        process.env.FRONTEND_URL,
+        process.env.NEXT_PUBLIC_APP_URL,
+        process.env.APP_URL,
+        process.env.SITE_URL,
+        'http://localhost:3000',
+        'http://127.0.0.1:3000',
+        'https://aquaroom-shop.com',
+        'https://www.aquaroom-shop.com',
+    ].filter(Boolean);
+    return Array.from(new Set(values.map((value) => normalizeOrigin(value)).filter(Boolean)));
+}
+function getClientIp(req) {
+    const forwarded = req.headers['x-forwarded-for'];
+    if (typeof forwarded === 'string' && forwarded.trim()) {
+        return forwarded.split(',')[0].trim();
+    }
+    const realIp = req.headers['x-real-ip'];
+    if (typeof realIp === 'string' && realIp.trim()) {
+        return realIp.trim();
+    }
+    const cfIp = req.headers['cf-connecting-ip'];
+    if (typeof cfIp === 'string' && cfIp.trim()) {
+        return cfIp.trim();
+    }
+    return req.ip || 'unknown';
+}
+function isSensitiveRoute(pathname) {
+    return SENSITIVE_PATHS.some((route) => pathname === route || pathname.startsWith(`${route}/`));
+}
+function isAllowedOrigin(origin) {
+    if (!origin)
+        return true;
+    const allowedOrigins = getAllowedOrigins();
+    const normalizedOrigin = normalizeOrigin(origin);
+    if (!normalizedOrigin)
+        return false;
+    return allowedOrigins.includes(normalizedOrigin);
+}
+function isAllowedReferer(referer) {
+    if (!referer)
+        return true;
+    try {
+        const url = new URL(referer);
+        const allowedOrigins = getAllowedOrigins();
+        return allowedOrigins.includes(url.origin);
+    }
+    catch {
+        return false;
+    }
+}
+function checkBucket(key, limit, windowMs) {
+    const now = Date.now();
+    const current = RATE_BUCKETS.get(key);
+    if (!current || current.resetAt <= now) {
+        RATE_BUCKETS.set(key, { count: 1, resetAt: now + windowMs });
+        return { allowed: true, remaining: limit - 1 };
+    }
+    if (current.count >= limit) {
+        return { allowed: false, remaining: 0 };
+    }
+    current.count += 1;
+    return { allowed: true, remaining: limit - current.count };
+}
+app.use('/api', (req, res, next) => {
+    const ip = getClientIp(req);
+    const pathname = req.path || '/';
+    const origin = req.headers.origin || null;
+    const referer = req.headers.referer || null;
+    const userAgent = req.headers['user-agent'] || '';
+    if (BLOCKED_IPS.has(ip)) {
+        return res.status(403).json({ error: 'blocked_ip' });
+    }
+    if (origin && !isAllowedOrigin(origin)) {
+        BLOCKED_IPS.add(ip);
+        return res.status(403).json({ error: 'forbidden_origin' });
+    }
+    if (referer && !isAllowedReferer(referer)) {
+        BLOCKED_IPS.add(ip);
+        return res.status(403).json({ error: 'forbidden_referer' });
+    }
+    const isBrowserLike = BROWSER_USER_AGENTS.test(userAgent);
+    const isSuspiciousBot = SUSPICIOUS_USER_AGENTS.test(userAgent) || userAgent.trim().length === 0;
+    if (isSensitiveRoute(pathname) && isSuspiciousBot && !isBrowserLike) {
+        const bucket = checkBucket(`${ip}:${pathname}:bot`, 10, API_RATE_LIMIT_WINDOW_MS);
+        if (!bucket.allowed) {
+            BLOCKED_IPS.add(ip);
+            return res.status(403).json({ error: 'bot_detected' });
+        }
+    }
+    const limit = isSensitiveRoute(pathname) ? 25 : 80;
+    const bucket = checkBucket(`${ip}:${pathname}`, limit, API_RATE_LIMIT_WINDOW_MS);
+    if (!bucket.allowed) {
+        BLOCKED_IPS.add(ip);
+        return res.status(429).json({ error: 'rate_limited' });
+    }
+    next();
+});
 // Early Supabase connection test with actionable logs
 (async () => {
     const ok = await (0, supabase_1.testSupabaseConnection)();
