@@ -62,6 +62,7 @@ app.use(cors({
       'http://127.0.0.1:3000',
       'https://aquaroom-shop.com',
       'https://www.aquaroom-shop.com',
+      'http://localhost:5000'
     ].filter(Boolean) as string[];
 
     if (!origin) return callback(null, true);
@@ -123,8 +124,14 @@ function getAllowedOrigins(): string[] {
     process.env.NEXT_PUBLIC_APP_URL,
     process.env.APP_URL,
     process.env.SITE_URL,
+    process.env.API_BASE_URL,
+    process.env.BACKEND_URL,
+    process.env.ADMIN_API_URL,
     'http://localhost:3000',
     'http://127.0.0.1:3000',
+    'http://localhost:5000',
+    'http://127.0.0.1:5000',
+    'https://backend-aquaroom.vercel.app',
     'https://aquaroom-shop.com',
     'https://www.aquaroom-shop.com',
   ].filter(Boolean) as string[];
@@ -160,7 +167,10 @@ function isAllowedOrigin(origin: string | null) {
   const allowedOrigins = getAllowedOrigins();
   const normalizedOrigin = normalizeOrigin(origin);
   if (!normalizedOrigin) return false;
-  return allowedOrigins.includes(normalizedOrigin);
+  if (allowedOrigins.includes(normalizedOrigin)) return true;
+  if (normalizedOrigin.startsWith('http://localhost:') || normalizedOrigin.startsWith('http://127.0.0.1:')) return true;
+  if (normalizedOrigin.endsWith('.vercel.app')) return true;
+  return false;
 }
 
 function isAllowedReferer(referer: string | null) {
@@ -197,9 +207,15 @@ app.use('/api', (req: Request, res: Response, next: NextFunction) => {
   const origin = req.headers.origin || null;
   const referer = req.headers.referer || null;
   const userAgent = req.headers['user-agent'] || '';
+  const host = (req.headers.host || '').split(',')[0].trim().toLowerCase();
+  const sameOrigin = !!origin && !!host && normalizeOrigin(origin)?.toLowerCase() === `http://${host}` || !!origin && !!host && normalizeOrigin(origin)?.toLowerCase() === `https://${host}`;
 
   if (BLOCKED_IPS.has(ip)) {
     return res.status(403).json({ error: 'blocked_ip' });
+  }
+
+  if (pathname.startsWith('/api/admin') && sameOrigin) {
+    return next();
   }
 
   if (origin && !isAllowedOrigin(origin)) {
@@ -7409,6 +7425,12 @@ app.post('/api/orders/:orderNumber/upload-payment', handleFileUploadWithBusboy, 
 // ==============================
 // API ส่วนของ Login เข้า Addmin 
 // ==============================
+app.get('/api/admin/login', (_req, res) => {
+  return res.status(405).json({
+    success: false,
+    message: 'Method not allowed. Please use POST.'
+  });
+});
 
 // แก้ไข POST /api/admin/login
 app.post('/api/admin/login', async (req: Request, res: Response) => {

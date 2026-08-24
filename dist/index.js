@@ -10,6 +10,8 @@ const dotenv_1 = __importDefault(require("dotenv"));
 const bcrypt_1 = __importDefault(require("bcrypt"));
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const cookie_parser_1 = __importDefault(require("cookie-parser"));
+const helmet_1 = __importDefault(require("helmet"));
+const express_rate_limit_1 = __importDefault(require("express-rate-limit"));
 const client_1 = require("@prisma/client");
 const path_1 = __importDefault(require("path"));
 const busboy_1 = __importDefault(require("busboy"));
@@ -25,10 +27,47 @@ exports.prisma = new client_1.PrismaClient();
 const app = (0, express_1.default)();
 const PORT = process.env.PORT || 5000;
 // Middlewares
-app.use((0, cors_1.default)());
-app.use(express_1.default.json());
+app.set('trust proxy', 1);
+app.disable('x-powered-by');
+app.use((0, cors_1.default)({
+    origin: (origin, callback) => {
+        const allowed = [
+            process.env.FRONTEND_URL,
+            process.env.NEXT_PUBLIC_APP_URL,
+            process.env.APP_URL,
+            process.env.SITE_URL,
+            'http://localhost:3000',
+            'http://127.0.0.1:3000',
+            'https://aquaroom-shop.com',
+            'https://www.aquaroom-shop.com',
+            'http://localhost:5000'
+        ].filter(Boolean);
+        if (!origin)
+            return callback(null, true);
+        if (allowed.includes(origin))
+            return callback(null, true);
+        return callback(new Error('Origin not allowed'));
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+}));
+app.use((0, helmet_1.default)({
+    contentSecurityPolicy: false,
+    crossOriginResourcePolicy: false,
+    frameguard: false,
+}));
+app.use(express_1.default.json({ limit: '1mb' }));
 app.use((0, cookie_parser_1.default)());
-app.use(express_1.default.urlencoded({ extended: true }));
+app.use(express_1.default.urlencoded({ extended: true, limit: '1mb' }));
+app.use('/api', (0, express_rate_limit_1.default)({
+    windowMs: 60 * 1000,
+    max: 80,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'rate_limited' },
+    skip: (req) => req.path === '/api/health',
+}));
 const API_RATE_LIMIT_WINDOW_MS = 60000;
 const BLOCKED_IPS = new Set();
 const RATE_BUCKETS = new Map();
@@ -62,8 +101,14 @@ function getAllowedOrigins() {
         process.env.NEXT_PUBLIC_APP_URL,
         process.env.APP_URL,
         process.env.SITE_URL,
+        process.env.API_BASE_URL,
+        process.env.BACKEND_URL,
+        process.env.ADMIN_API_URL,
         'http://localhost:3000',
         'http://127.0.0.1:3000',
+        'http://localhost:5000',
+        'http://127.0.0.1:5000',
+        'https://backend-aquaroom.vercel.app',
         'https://aquaroom-shop.com',
         'https://www.aquaroom-shop.com',
     ].filter(Boolean);
@@ -94,7 +139,13 @@ function isAllowedOrigin(origin) {
     const normalizedOrigin = normalizeOrigin(origin);
     if (!normalizedOrigin)
         return false;
-    return allowedOrigins.includes(normalizedOrigin);
+    if (allowedOrigins.includes(normalizedOrigin))
+        return true;
+    if (normalizedOrigin.startsWith('http://localhost:') || normalizedOrigin.startsWith('http://127.0.0.1:'))
+        return true;
+    if (normalizedOrigin.endsWith('.vercel.app'))
+        return true;
+    return false;
 }
 function isAllowedReferer(referer) {
     if (!referer)
@@ -127,8 +178,13 @@ app.use('/api', (req, res, next) => {
     const origin = req.headers.origin || null;
     const referer = req.headers.referer || null;
     const userAgent = req.headers['user-agent'] || '';
+    const host = (req.headers.host || '').split(',')[0].trim().toLowerCase();
+    const sameOrigin = !!origin && !!host && normalizeOrigin(origin)?.toLowerCase() === `http://${host}` || !!origin && !!host && normalizeOrigin(origin)?.toLowerCase() === `https://${host}`;
     if (BLOCKED_IPS.has(ip)) {
         return res.status(403).json({ error: 'blocked_ip' });
+    }
+    if (pathname.startsWith('/api/admin') && sameOrigin) {
+        return next();
     }
     if (origin && !isAllowedOrigin(origin)) {
         BLOCKED_IPS.add(ip);
@@ -6494,6 +6550,12 @@ app.post('/api/orders/:orderNumber/upload-payment', handleFileUploadWithBusboy, 
 // ==============================
 // API ส่วนของ Login เข้า Addmin 
 // ==============================
+app.get('/api/admin/login', (_req, res) => {
+    return res.status(405).json({
+        success: false,
+        message: 'Method not allowed. Please use POST.'
+    });
+});
 // แก้ไข POST /api/admin/login
 app.post('/api/admin/login', async (req, res) => {
     try {

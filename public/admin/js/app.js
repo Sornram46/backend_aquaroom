@@ -1783,7 +1783,7 @@ async function showDashboard() {
         console.warn('⚠️ Recent orders API failed:', error);
         return [];
       }),
-      fetchAPI('/analytics/page-views').catch(error => {
+      fetchAPI('/admin/analytics/page-views').catch(error => {
         console.warn('⚠️ Page views API failed:', error);
         return null;
       })
